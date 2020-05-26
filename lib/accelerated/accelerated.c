@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -32,9 +32,7 @@
 void _gnutls_register_accel_crypto(void)
 {
 #if defined(ASM_X86)
-	if (gnutls_have_cpuid() != 0) {
-		register_x86_crypto();
-	}
+	register_x86_crypto();
 #endif
 
 #if defined(ASM_AARCH64)

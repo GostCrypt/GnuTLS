@@ -16,12 +16,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
-#ifndef GNUTLS_CIPHER_INT
-#define GNUTLS_CIPHER_INT
+#ifndef GNUTLS_LIB_CIPHER_INT_H
+#define GNUTLS_LIB_CIPHER_INT_H
 
 #include <gnutls/crypto.h>
 #include "errors.h"
@@ -50,6 +50,7 @@ typedef void (*cipher_deinit_func) (void *hd);
 
 typedef int (*cipher_auth_func) (void *hd, const void *data, size_t);
 typedef int (*cipher_setiv_func) (void *hd, const void *iv, size_t);
+typedef int (*cipher_getiv_func) (void *hd, void *iv, size_t);
 
 typedef void (*cipher_tag_func) (void *hd, void *tag, size_t);
 
@@ -63,6 +64,7 @@ typedef struct {
 	cipher_auth_func auth;
 	cipher_tag_func tag;
 	cipher_setiv_func setiv;
+	cipher_getiv_func getiv;
 	cipher_deinit_func deinit;
 } cipher_hd_st;
 
@@ -74,6 +76,16 @@ inline static int _gnutls_cipher_setiv(const cipher_hd_st * handle,
 					const void *iv, size_t ivlen)
 {
 	return handle->setiv(handle->handle, iv, ivlen);
+}
+
+inline static int _gnutls_cipher_getiv(const cipher_hd_st * handle,
+				       void *iv, size_t ivlen)
+{
+	if (unlikely(handle == NULL || handle->handle == NULL ||
+		    handle->getiv == NULL))
+		return GNUTLS_E_INVALID_REQUEST;
+
+	return handle->getiv(handle->handle, iv, ivlen);
 }
 
 inline static int
@@ -158,6 +170,9 @@ inline static void _gnutls_cipher_deinit(cipher_hd_st * handle)
 
 int _gnutls_cipher_exists(gnutls_cipher_algorithm_t cipher);
 
+int _gnutls_cipher_get_iv(gnutls_cipher_hd_t handle, void *iv,
+			  size_t ivlen);
+
 #define _gnutls_cipher_is_aead(h) _gnutls_cipher_algo_is_aead((h)->e)
 
 /* returns the tag in AUTHENC ciphers */
@@ -196,6 +211,9 @@ typedef struct {
 #ifdef ENABLE_SSL3
 	unsigned int ssl_hmac:1;
 #endif
+#ifdef ENABLE_GOST
+	unsigned int continuous_mac:1;
+#endif
 	unsigned int non_null:1;
 	unsigned int etm:1;
 	size_t tag_size;
@@ -226,11 +244,11 @@ int _gnutls_auth_cipher_decrypt2(auth_cipher_hd_st * handle,
 int _gnutls_auth_cipher_tag(auth_cipher_hd_st * handle, void *tag,
 			    int tag_size);
 
-inline static void _gnutls_auth_cipher_setiv(const auth_cipher_hd_st *
+inline static int _gnutls_auth_cipher_setiv(const auth_cipher_hd_st *
 					     handle, const void *iv,
 					     size_t ivlen)
 {
-	_gnutls_cipher_setiv(&handle->cipher, iv, ivlen);
+	return _gnutls_cipher_setiv(&handle->cipher, iv, ivlen);
 }
 
 inline static size_t _gnutls_auth_cipher_tag_len(auth_cipher_hd_st *
@@ -244,4 +262,4 @@ inline static size_t _gnutls_auth_cipher_tag_len(auth_cipher_hd_st *
 void _gnutls_auth_cipher_deinit(auth_cipher_hd_st * handle);
 
 
-#endif				/* GNUTLS_CIPHER_INT */
+#endif /* GNUTLS_LIB_CIPHER_INT_H */

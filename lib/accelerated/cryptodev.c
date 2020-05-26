@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -28,6 +28,7 @@
 
 #ifdef ENABLE_CRYPTODEV
 
+#include <assert.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <crypto/cryptodev.h>
@@ -89,6 +90,8 @@ static int
 cryptodev_cipher_setkey(void *_ctx, const void *key, size_t keysize)
 {
 	struct cryptodev_ctx *ctx = _ctx;
+
+	CHECK_AES_KEYSIZE(keysize);
 
 	ctx->sess.keylen = keysize;
 	ctx->sess.key = (void *) key;
@@ -248,7 +251,7 @@ int _gnutls_cryptodev_init(void)
 			return GNUTLS_E_CRYPTODEV_IOCTL_ERROR;
 		}
 
-		/* Set close-on-exec (not really neede here) */
+		/* Set close-on-exec (not really needed here) */
 		if (fcntl(cfd, F_SETFD, 1) == -1) {
 			gnutls_assert();
 			return GNUTLS_E_CRYPTODEV_IOCTL_ERROR;
@@ -299,11 +302,14 @@ static const int gnutls_mac_map[] = {
 
 static int
 cryptodev_mac_fast(gnutls_mac_algorithm_t algo,
+		   const void *nonce, size_t nonce_size,
 		   const void *key, size_t key_size, const void *text,
 		   size_t text_size, void *digest)
 {
 	struct cryptodev_ctx ctx;
 	int ret;
+
+	assert(nonce_size == 0);
 
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfd = _gnutls_cryptodev_fd;

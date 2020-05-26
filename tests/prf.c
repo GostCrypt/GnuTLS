@@ -41,6 +41,7 @@ int main(int argc, char **argv)
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <signal.h>
 #include <gnutls/gnutls.h>
 #include <gnutls/dtls.h>
 
@@ -282,6 +283,14 @@ static void client(int fd)
 	gnutls_handshake_set_random(session, &hrnd);
 	gnutls_transport_set_int(session, fd);
 
+	if (gnutls_prf(session, 4, "aaaa", 0, 0, NULL, sizeof(err), (char *)&err) !=
+			GNUTLS_E_INVALID_REQUEST ||
+	    gnutls_prf_rfc5705(session, 4, "aaaa", 0, NULL, sizeof(err), (char *)&err) !=
+			GNUTLS_E_INVALID_REQUEST) {
+		fprintf(stderr, "unexpected prf error code\n");
+		exit(1);
+	}
+
 	/* Perform the TLS handshake
 	 */
 	do {
@@ -311,6 +320,12 @@ static void client(int fd)
 	ret = gnutls_mac_get(session);
 	if (ret != GNUTLS_MAC_SHA1) {
 		fprintf(stderr, "negotiated unexpected mac: %s\n", gnutls_mac_get_name(ret));
+		exit(1);
+	}
+
+	ret = gnutls_prf_hash_get(session);
+	if (ret != GNUTLS_DIG_MD5_SHA1) {
+		fprintf(stderr, "negotiated unexpected hash: %s\n", gnutls_digest_get_name(ret));
 		exit(1);
 	}
 
@@ -422,6 +437,8 @@ static void start(void)
 {
 	int fd[2];
 	int ret;
+
+	signal(SIGPIPE, SIG_IGN);
 
 	ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
 	if (ret < 0) {

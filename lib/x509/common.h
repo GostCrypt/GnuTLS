@@ -17,12 +17,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef GNUTLS_LIB_X509_COMMON_H
+#define GNUTLS_LIB_X509_COMMON_H
 
 #include <algorithms.h>
 #include <abstract_int.h>
@@ -30,9 +30,14 @@
 #include <fips.h>
 
 #define MAX_STRING_LEN 512
+
+#if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+# define MAX_ITER_COUNT 10*1024
+#else
 /* Set a maximum iteration count over which we refuse to
  * decode a file. That is to prevent DoS. */
-#define MAX_ITER_COUNT (10*1024*1024)
+# define MAX_ITER_COUNT (10*1024*1024)
+#endif
 
 #define GNUTLS_XML_SHOW_ALL 1
 
@@ -46,10 +51,13 @@
 /* public key algorithm's OIDs
  */
 #define PK_PKIX1_RSA_OID "1.2.840.113549.1.1.1"
+#define PK_PKIX1_RSA_PSS_OID "1.2.840.113549.1.1.10"
 #define PK_X509_RSA_OID "2.5.8.1.1"
 #define PK_DSA_OID "1.2.840.10040.4.1"
 #define PK_GOST_R3410_94_OID "1.2.643.2.2.20"
 #define PK_GOST_R3410_2001_OID "1.2.643.2.2.19"
+#define PK_GOST_R3410_2012_256_OID "1.2.643.7.1.1.1.1"
+#define PK_GOST_R3410_2012_512_OID "1.2.643.7.1.1.1.2"
 
 /* signature OIDs
  */
@@ -70,6 +78,8 @@
 #define SIG_RSA_RMD160_OID "1.3.36.3.3.1.2"
 #define SIG_GOST_R3410_94_OID "1.2.643.2.2.4"
 #define SIG_GOST_R3410_2001_OID "1.2.643.2.2.3"
+#define SIG_GOST_R3410_2012_256_OID "1.2.643.7.1.1.3.2"
+#define SIG_GOST_R3410_2012_512_OID "1.2.643.7.1.1.3.3"
 #define ISO_SIG_RSA_SHA1_OID "1.3.14.3.2.29"
 
 #define SIG_DSA_SHA3_224_OID "2.16.840.1.101.3.4.3.5"
@@ -87,11 +97,34 @@
 #define SIG_RSA_SHA3_384_OID "2.16.840.1.101.3.4.3.15"
 #define SIG_RSA_SHA3_512_OID "2.16.840.1.101.3.4.3.16"
 
+#define SIG_EDDSA_SHA512_OID "1.3.101.112"
+#define SIG_ED448_OID "1.3.101.113"
+
 #define XMPP_OID "1.3.6.1.5.5.7.8.5"
 #define KRB5_PRINCIPAL_OID "1.3.6.1.5.2.2"
+#define PKIX1_RSA_PSS_MGF1_OID "1.2.840.113549.1.1.8"
+
+#define GOST28147_89_OID "1.2.643.2.2.21"
+#define GOST28147_89_TC26Z_OID "1.2.643.7.1.2.5.1.1"
+#define GOST28147_89_CPA_OID "1.2.643.2.2.31.1"
+#define GOST28147_89_CPB_OID "1.2.643.2.2.31.2"
+#define GOST28147_89_CPC_OID "1.2.643.2.2.31.3"
+#define GOST28147_89_CPD_OID "1.2.643.2.2.31.4"
 
 #define ASN1_NULL "\x05\x00"
 #define ASN1_NULL_SIZE 2
+
+struct oid_to_string {
+	const char *oid;
+	unsigned oid_size;
+	const char *name_desc;
+	unsigned name_desc_size;
+	const char *asn_desc;	/* description in the pkix file if complex type */
+	unsigned int etype;	/* the libtasn1 ASN1_ETYPE or INVALID
+				 * if cannot be simply parsed */
+};
+
+const struct oid_to_string *_gnutls_oid_get_entry(const struct oid_to_string *ots, const char *oid);
 
 int _gnutls_x509_set_time(ASN1_TYPE c2, const char *where, time_t tim,
 			  int force_general);
@@ -163,6 +196,7 @@ int _gnutls_x509_decode_and_read_attribute(ASN1_TYPE asn1_struct,
 					   int multi, int octet);
 
 int _gnutls_x509_get_pk_algorithm(ASN1_TYPE src, const char *src_name,
+				  gnutls_ecc_curve_t *curve,
 				  unsigned int *bits);
 
 int
@@ -170,12 +204,9 @@ _gnutls_x509_get_signature_algorithm(ASN1_TYPE src, const char *src_name);
 
 int _gnutls_x509_encode_and_copy_PKI_params(ASN1_TYPE dst,
 					    const char *dst_name,
-					    gnutls_pk_algorithm_t
-					    pk_algorithm,
-					    gnutls_pk_params_st * params);
+					    const gnutls_pk_params_st * params);
 int _gnutls_x509_encode_PKI_params(gnutls_datum_t * der,
-				   gnutls_pk_algorithm_t,
-				   gnutls_pk_params_st * params);
+				   const gnutls_pk_params_st * params);
 int _gnutls_asn1_copy_node(ASN1_TYPE * dst, const char *dst_name,
 			   ASN1_TYPE src, const char *src_name);
 
@@ -189,7 +220,7 @@ int _gnutls_x509_get_signature(ASN1_TYPE src, const char *src_name,
 int _gnutls_get_asn_mpis(ASN1_TYPE asn, const char *root,
 			 gnutls_pk_params_st * params);
 
-int _gnutls_get_key_id(gnutls_pk_algorithm_t pk, gnutls_pk_params_st *,
+int _gnutls_get_key_id(gnutls_pk_params_st *,
 		       unsigned char *output_data,
 		       size_t * output_data_size, unsigned flags);
 
@@ -204,7 +235,7 @@ _gnutls_x509_get_raw_field(ASN1_TYPE c2, const char *whom, gnutls_datum_t *out)
 }
 
 int
-_gnutls_x509_get_raw_field2(ASN1_TYPE c2, gnutls_datum_t * raw,
+_gnutls_x509_get_raw_field2(ASN1_TYPE c2, const gnutls_datum_t * raw,
 			 const char *whom, gnutls_datum_t * dn);
 
 unsigned
@@ -217,8 +248,9 @@ _gnutls_check_if_same_key2(gnutls_x509_crt_t cert1,
 			   gnutls_datum_t *cert2bin);
 
 unsigned
-_gnutls_check_valid_key_id(gnutls_datum_t *key_id,
-			   gnutls_x509_crt_t cert, time_t now);
+_gnutls_check_valid_key_id(const gnutls_datum_t *key_id,
+			   gnutls_x509_crt_t cert, time_t now,
+			   unsigned *has_ski);
 
 unsigned _gnutls_check_key_purpose(gnutls_x509_crt_t cert, const char *purpose, unsigned no_any);
 
@@ -237,12 +269,14 @@ int _gnutls_strdatum_to_buf(gnutls_datum_t * d, void *buf,
 
 unsigned _gnutls_is_same_dn(gnutls_x509_crt_t cert1, gnutls_x509_crt_t cert2);
 
-int _gnutls_copy_string(gnutls_datum_t* str, uint8_t *out, size_t *out_size);
-int _gnutls_copy_data(gnutls_datum_t* str, uint8_t *out, size_t *out_size);
+int _gnutls_copy_string(const gnutls_datum_t* str, uint8_t *out, size_t *out_size);
+int _gnutls_copy_data(const gnutls_datum_t* str, uint8_t *out, size_t *out_size);
 
 int _gnutls_x509_decode_ext(const gnutls_datum_t *der, gnutls_x509_ext_st *out);
-int x509_raw_crt_to_raw_pubkey(const gnutls_datum_t * cert,
+int _gnutls_x509_raw_crt_to_raw_pubkey(const gnutls_datum_t * cert,
 			   gnutls_datum_t * rpubkey);
+
+int _gnutls_x509_get_version(ASN1_TYPE root, const char *name);
 
 int x509_crt_to_raw_pubkey(gnutls_x509_crt_t crt,
 			   gnutls_datum_t * rpubkey);
@@ -260,7 +294,12 @@ int _gnutls_check_if_sorted(gnutls_x509_crt_t * crt, int nr);
 inline static int _asn1_strict_der_decode (asn1_node * element, const void *ider,
 		       int len, char *errorDescription)
 {
-	return asn1_der_decoding2(element, ider, &len, ASN1_DECODE_FLAG_STRICT_DER, errorDescription);
+#if defined(STRICT_DER_TIME) || !defined(ASN1_DECODE_FLAG_ALLOW_INCORRECT_TIME)
+# define _ASN1_DER_FLAGS ASN1_DECODE_FLAG_STRICT_DER
+#else
+# define _ASN1_DER_FLAGS (ASN1_DECODE_FLAG_ALLOW_INCORRECT_TIME|ASN1_DECODE_FLAG_STRICT_DER)
+#endif
+	return asn1_der_decoding2(element, ider, &len, _ASN1_DER_FLAGS, errorDescription);
 }
 
-#endif
+#endif /* GNUTLS_LIB_X509_COMMON_H */

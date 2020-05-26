@@ -16,7 +16,7 @@
 # Lesser General Public License for more details.
 #
 # You should have received a copy of the GNU Lesser General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>
+# along with this program.  If not, see <https://www.gnu.org/licenses/>
 
 AM_LIBTOOLFLAGS=--tag=CC
 
@@ -39,7 +39,7 @@ noinst_LTLIBRARIES = libx86.la
 
 libx86_la_SOURCES = x86-common.c aes-x86.h x86-common.h sha-x86-ssse3.c sha-x86.h hmac-x86-ssse3.c \
 	aes-gcm-x86-ssse3.c aes-gcm-x86-aesni.c aes-cbc-x86-ssse3.c aes-cbc-x86-aesni.c aes-gcm-aead.h \
-	aes-ccm-x86-aesni.c
+	aes-ccm-x86-aesni.c aes-xts-x86-aesni.c
 
 if ENABLE_PADLOCK
 libx86_la_SOURCES += sha-padlock.c hmac-padlock.c aes-padlock.c aes-gcm-padlock.c \

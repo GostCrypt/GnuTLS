@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -186,14 +186,6 @@ add_new_ca_to_rdn_seq(gnutls_x509_trust_list_t list,
 	 * This will be sent to clients when a certificate
 	 * request message is sent.
 	 */
-
-	/* FIXME: in case of a client it is not needed
-	 * to do that. This would save time and memory.
-	 * However we don't have that information available
-	 * here.
-	 * Further, this function is now much more efficient,
-	 * so optimizing that is less important.
-	 */
 	tmp.data = ca->raw_dn.data;
 	tmp.size = ca->raw_dn.size;
 
@@ -256,14 +248,23 @@ trust_list_add_compat(gnutls_x509_trust_list_t list,
  * @flags: flags from %gnutls_trust_list_flags_t
  *
  * This function will add the given certificate authorities
- * to the trusted list. The list of CAs must not be deinitialized
- * during this structure's lifetime.
+ * to the trusted list. The CAs in @clist must not be deinitialized
+ * during the lifetime of @list.
  *
  * If the flag %GNUTLS_TL_NO_DUPLICATES is specified, then
- * the provided @clist entries that are duplicates will not be
- * added to the list and will be deinitialized.
+ * this function will ensure that no duplicates will be
+ * present in the final trust list.
  *
- * Returns: The number of added elements is returned.
+ * If the flag %GNUTLS_TL_NO_DUPLICATE_KEY is specified, then
+ * this function will ensure that no certificates with the
+ * same key are present in the final trust list.
+ *
+ * If either %GNUTLS_TL_NO_DUPLICATE_KEY or %GNUTLS_TL_NO_DUPLICATES
+ * are given, gnutls_x509_trust_list_deinit() must be called with parameter
+ * @all being 1.
+ *
+ * Returns: The number of added elements is returned; that includes
+ *          duplicate entries.
  *
  * Since: 3.0.0
  **/
@@ -273,7 +274,7 @@ gnutls_x509_trust_list_add_cas(gnutls_x509_trust_list_t list,
 			       unsigned clist_size, unsigned int flags)
 {
 	unsigned i, j;
-	uint32_t hash;
+	size_t hash;
 	int ret;
 	unsigned exists;
 
@@ -335,7 +336,7 @@ gnutls_x509_trust_list_add_cas(gnutls_x509_trust_list_t list,
 			ret = add_new_ca_to_rdn_seq(list, clist[i]);
 			if (ret < 0) {
 				gnutls_assert();
-				return i;
+				return i+1;
 			}
 		}
 	}
@@ -347,8 +348,6 @@ static int
 advance_iter(gnutls_x509_trust_list_t list,
 	     gnutls_x509_trust_list_iter_t iter)
 {
-	int ret;
-
 	if (iter->node_index < list->size) {
 		++iter->ca_index;
 
@@ -366,8 +365,8 @@ advance_iter(gnutls_x509_trust_list_t list,
 #ifdef ENABLE_PKCS11
 	if (list->pkcs11_token != NULL) {
 		if (iter->pkcs11_list == NULL) {
-			ret = gnutls_pkcs11_obj_list_import_url2(&iter->pkcs11_list, &iter->pkcs11_size,
-			    list->pkcs11_token, (GNUTLS_PKCS11_OBJ_FLAG_CRT|GNUTLS_PKCS11_OBJ_FLAG_MARK_CA|GNUTLS_PKCS11_OBJ_FLAG_MARK_TRUSTED), 0);
+			int ret = gnutls_pkcs11_obj_list_import_url2(&iter->pkcs11_list, &iter->pkcs11_size,
+			    list->pkcs11_token, (GNUTLS_PKCS11_OBJ_FLAG_PRESENT_IN_TRUSTED_MODULE|GNUTLS_PKCS11_OBJ_FLAG_CRT|GNUTLS_PKCS11_OBJ_FLAG_MARK_CA|GNUTLS_PKCS11_OBJ_FLAG_MARK_TRUSTED), 0);
 			if (ret < 0)
 				return gnutls_assert_val(ret);
 
@@ -397,8 +396,11 @@ advance_iter(gnutls_x509_trust_list_t list,
  * When past the last element is accessed %GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE
  * is returned and the iterator is reset.
  *
- * After use, the iterator must be deinitialized usin
- *  gnutls_x509_trust_list_iter_deinit().
+ * The iterator is deinitialized and reset to %NULL automatically by this
+ * function after iterating through all elements until
+ * %GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE is returned. If the iteration is
+ * aborted early, it must be manually deinitialized using
+ * gnutls_x509_trust_list_iter_deinit().
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
@@ -563,7 +565,7 @@ gnutls_x509_trust_list_remove_cas(gnutls_x509_trust_list_t list,
 {
 	int r = 0;
 	unsigned j, i;
-	uint32_t hash;
+	size_t hash;
 
 	for (i = 0; i < clist_size; i++) {
 		hash =
@@ -628,8 +630,8 @@ gnutls_x509_trust_list_remove_cas(gnutls_x509_trust_list_t list,
  * certificates that are trusted by the user for that specific server
  * but for no other purposes.
  *
- * The certificate must not be deinitialized during the lifetime
- * of the trusted list.
+ * The certificate @cert must not be deinitialized during the lifetime
+ * of the @list.
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
@@ -642,7 +644,7 @@ gnutls_x509_trust_list_add_named_crt(gnutls_x509_trust_list_t list,
 				     const void *name, size_t name_size,
 				     unsigned int flags)
 {
-	uint32_t hash;
+	size_t hash;
 
 	if (name_size >= MAX_SERVER_NAME_SIZE)
 		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
@@ -683,18 +685,21 @@ gnutls_x509_trust_list_add_named_crt(gnutls_x509_trust_list_t list,
  * @verification_flags: gnutls_certificate_verify_flags if flags specifies GNUTLS_TL_VERIFY_CRL
  *
  * This function will add the given certificate revocation lists
- * to the trusted list. The list of CRLs must not be deinitialized
- * during this structure's lifetime.
+ * to the trusted list. The CRLs in @crl_list must not be deinitialized
+ * during the lifetime of @list.
  *
  * This function must be called after gnutls_x509_trust_list_add_cas()
  * to allow verifying the CRLs for validity. If the flag %GNUTLS_TL_NO_DUPLICATES
- * is given, then any provided CRLs that are a duplicate, will be deinitialized
- * and not added to the list (that assumes that gnutls_x509_trust_list_deinit()
- * will be called with all=1).
+ * is given, then the final CRL list will not contain duplicate entries.
  *
- * If GNUTLS_TL_VERIFY_CRL is given the CRLs will be verified before being added.
+ * If the flag %GNUTLS_TL_NO_DUPLICATES is given, gnutls_x509_trust_list_deinit() must be
+ * called with parameter @all being 1.
  *
- * Returns: The number of added elements is returned.
+ * If flag %GNUTLS_TL_VERIFY_CRL is given the CRLs will be verified before being added,
+ * and if verification fails, they will be skipped.
+ *
+ * Returns: The number of added elements is returned; that includes
+ *          duplicate entries.
  *
  * Since: 3.0
  **/
@@ -707,7 +712,8 @@ gnutls_x509_trust_list_add_crls(gnutls_x509_trust_list_t list,
 	int ret;
 	unsigned x, i, j = 0;
 	unsigned int vret = 0;
-	uint32_t hash;
+	size_t hash;
+	gnutls_x509_crl_t *tmp;
 
 	/* Probably we can optimize things such as removing duplicates
 	 * etc.
@@ -733,6 +739,10 @@ gnutls_x509_trust_list_add_crls(gnutls_x509_trust_list_t list,
 						   &vret);
 			if (ret < 0 || vret != 0) {
 				_gnutls_debug_log("CRL verification failed, not adding it\n");
+				if (flags & GNUTLS_TL_NO_DUPLICATES)
+					gnutls_x509_crl_deinit(crl_list[i]);
+				if (flags & GNUTLS_TL_FAIL_ON_INVALID_CRL)
+					return gnutls_assert_val(GNUTLS_E_CRL_VERIFICATION_ERROR);
 				continue;
 			}
 		}
@@ -752,22 +762,28 @@ gnutls_x509_trust_list_add_crls(gnutls_x509_trust_list_t list,
 					} else {
 						/* The new is older, discard it */
 						gnutls_x509_crl_deinit(crl_list[i]);
-						continue;
+						goto next;
 					}
 				}
 			}
 		}
 
-		list->node[hash].crls =
-		    gnutls_realloc_fast(list->node[hash].crls,
+		tmp =
+		    gnutls_realloc(list->node[hash].crls,
 					(list->node[hash].crl_size +
 					 1) *
 					sizeof(list->node[hash].
-					       trusted_cas[0]));
-		if (list->node[hash].crls == NULL) {
+					       crls[0]));
+		if (tmp == NULL) {
+			ret = i;
 			gnutls_assert();
-			return i;
+			if (flags & GNUTLS_TL_NO_DUPLICATES)
+				while (i < crl_size)
+					gnutls_x509_crl_deinit(crl_list[i++]);
+			return ret;
 		}
+		list->node[hash].crls = tmp;
+
 
 		list->node[hash].crls[list->node[hash].crl_size] =
 		    crl_list[i];
@@ -790,7 +806,7 @@ static int shorten_clist(gnutls_x509_trust_list_t list,
 			 unsigned int clist_size)
 {
 	unsigned int j, i;
-	uint32_t hash;
+	size_t hash;
 
 	if (clist_size > 1) {
 		/* Check if the last certificate in the path is self signed.
@@ -843,7 +859,7 @@ int trust_list_get_issuer(gnutls_x509_trust_list_t list,
 {
 	int ret;
 	unsigned int i;
-	uint32_t hash;
+	size_t hash;
 
 	hash =
 	    hash_pjw_bare(cert->raw_issuer_dn.data,
@@ -877,7 +893,7 @@ int trust_list_get_issuer_by_dn(gnutls_x509_trust_list_t list,
 {
 	int ret;
 	unsigned int i, j;
-	uint32_t hash;
+	size_t hash;
 	uint8_t tmp[256];
 	size_t tmp_size;
 
@@ -963,7 +979,7 @@ int gnutls_x509_trust_list_get_issuer(gnutls_x509_trust_list_t list,
 		gnutls_datum_t der = {NULL, 0};
 		/* use the token for verification */
 		ret = gnutls_pkcs11_get_raw_issuer(list->pkcs11_token, cert, &der,
-			GNUTLS_X509_FMT_DER, 0);
+			GNUTLS_X509_FMT_DER, GNUTLS_PKCS11_OBJ_FLAG_PRESENT_IN_TRUSTED_MODULE);
 		if (ret < 0) {
 			gnutls_assert();
 			return ret;
@@ -1035,7 +1051,7 @@ int gnutls_x509_trust_list_get_issuer_by_dn(gnutls_x509_trust_list_t list,
 		gnutls_datum_t der = {NULL, 0};
 		/* use the token for verification */
 		ret = gnutls_pkcs11_get_raw_issuer_by_dn(list->pkcs11_token, dn, &der,
-			GNUTLS_X509_FMT_DER, 0);
+			GNUTLS_X509_FMT_DER, GNUTLS_PKCS11_OBJ_FLAG_PRESENT_IN_TRUSTED_MODULE);
 		if (ret < 0) {
 			gnutls_assert();
 			return ret;
@@ -1096,7 +1112,7 @@ int gnutls_x509_trust_list_get_issuer_by_subject_key_id(gnutls_x509_trust_list_t
 		gnutls_datum_t der = {NULL, 0};
 		/* use the token for verification */
 		ret = gnutls_pkcs11_get_raw_issuer_by_subject_key_id(list->pkcs11_token, dn, spki, &der,
-			GNUTLS_X509_FMT_DER, 0);
+			GNUTLS_X509_FMT_DER, GNUTLS_PKCS11_OBJ_FLAG_PRESENT_IN_TRUSTED_MODULE);
 		if (ret < 0) {
 			gnutls_assert();
 			return ret;
@@ -1179,7 +1195,7 @@ gnutls_x509_trust_list_verify_crt(gnutls_x509_trust_list_t list,
 /* This macro is introduced to detect a verification output
  * which indicates an unknown signer, or a signer which uses
  * an insecure algorithm (e.g., sha1), something that indicates
- * a superceded signer */
+ * a superseded signer */
 #define SIGNER_OLD_OR_UNKNOWN(output) ((output & GNUTLS_CERT_SIGNER_NOT_FOUND) || (output & GNUTLS_CERT_INSECURE_ALGORITHM))
 #define SIGNER_WAS_KNOWN(output) (!(output & GNUTLS_CERT_SIGNER_NOT_FOUND))
 
@@ -1241,7 +1257,7 @@ gnutls_x509_trust_list_verify_crt2(gnutls_x509_trust_list_t list,
 {
 	int ret;
 	unsigned int i;
-	uint32_t hash;
+	size_t hash;
 	gnutls_x509_crt_t sorted[DEFAULT_MAX_VERIFY_DEPTH];
 	const char *hostname = NULL, *purpose = NULL, *email = NULL;
 	unsigned hostname_size = 0;
@@ -1485,7 +1501,7 @@ gnutls_x509_trust_list_verify_named_crt(gnutls_x509_trust_list_t list,
 {
 	int ret;
 	unsigned int i;
-	uint32_t hash;
+	size_t hash;
 
 
 	hash =
@@ -1542,7 +1558,7 @@ _gnutls_trustlist_inlist(gnutls_x509_trust_list_t list,
 {
 	int ret;
 	unsigned int i;
-	uint32_t hash;
+	size_t hash;
 
 	hash = hash_pjw_bare(cert->raw_dn.data, cert->raw_dn.size);
 	hash %= list->size;

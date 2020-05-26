@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -54,7 +54,7 @@ static const unsigned prng_reseed_limits[] = {
 	[GNUTLS_RND_KEY] = 2*1024*1024 /* same as GNUTLS_RND_RANDOM - but we re-key on every operation */
 };
 
-static const unsigned prng_reseed_time[] = {
+static const time_t prng_reseed_time[] = {
 	[GNUTLS_RND_NONCE] = 14400, /* 4 hours */
 	[GNUTLS_RND_RANDOM] = 7200, /* 2 hours */
 	[GNUTLS_RND_KEY] = 7200 /* same as RANDOM */
@@ -106,7 +106,7 @@ static int single_prng_init(struct prng_ctx_st *ctx,
 
 		ctx->forkid = _gnutls_get_forkid();
 
-		gettime(&now);
+		gnutls_gettime(&now);
 		memcpy(nonce, &now, MIN(sizeof(nonce), sizeof(now)));
 		ctx->last_reseed = now.tv_sec;
 	}

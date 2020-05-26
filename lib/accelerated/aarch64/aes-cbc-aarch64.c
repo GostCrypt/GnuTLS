@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011-2016 Free Software Foundation, Inc.
- * Copyright (C) 2016 Red Hat, Inc.
+ * Copyright (C) 2016-2018 Red Hat, Inc.
  *
  * Author: Nikos Mavrogiannopoulos
  *
@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -65,6 +65,8 @@ aes_aarch64_cipher_setkey(void *_ctx, const void *userkey, size_t keysize)
 	struct aes_ctx *ctx = _ctx;
 	int ret;
 
+	CHECK_AES_KEYSIZE(keysize);
+
 	if (ctx->enc)
 		ret =
 		    aes_v8_set_encrypt_key(userkey, keysize * 8,
@@ -86,6 +88,9 @@ aes_aarch64_encrypt(void *_ctx, const void *src, size_t src_size,
 {
 	struct aes_ctx *ctx = _ctx;
 
+	if (unlikely(src_size % 16 != 0))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+
 	aes_v8_cbc_encrypt(src, dst, src_size, ALIGN16(&ctx->expanded_key),
 			  ctx->iv, 1);
 	return 0;
@@ -96,6 +101,9 @@ aes_aarch64_decrypt(void *_ctx, const void *src, size_t src_size,
 	    void *dst, size_t dst_size)
 {
 	struct aes_ctx *ctx = _ctx;
+
+	if (unlikely(src_size % 16 != 0))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
 
 	aes_v8_cbc_encrypt(src, dst, src_size, ALIGN16(&ctx->expanded_key),
 			  ctx->iv, 0);

@@ -1,10 +1,7 @@
-#ifndef SHA_X86_H
-#define SHA_X86_H
+#ifndef GNUTLS_LIB_ACCELERATED_X86_SHA_X86_H
+#define GNUTLS_LIB_ACCELERATED_X86_SHA_X86_H
 
 #include <nettle/sha.h>
-
-/* nettle's SHA512 is faster than openssl's */
-#undef ENABLE_SHA512
 
 extern const struct nettle_hash x86_sha1;
 extern const struct nettle_hash x86_sha224;
@@ -19,4 +16,4 @@ void x86_sha512_update(struct sha512_ctx *ctx, size_t length, const uint8_t * da
 extern const gnutls_crypto_digest_st _gnutls_sha_x86_ssse3;
 extern const gnutls_crypto_mac_st _gnutls_hmac_sha_x86_ssse3;
 
-#endif
+#endif /* GNUTLS_LIB_ACCELERATED_X86_SHA_X86_H */

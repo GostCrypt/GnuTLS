@@ -16,23 +16,29 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
-#ifndef GNUTLS_BUFFERS_H
-#define GNUTLS_BUFFERS_H
+
+#ifndef GNUTLS_LIB_BUFFERS_H
+#define GNUTLS_LIB_BUFFERS_H
+
+#include "mbuffers.h"
 
 #define MBUFFER_FLUSH 1
 
 void
 _gnutls_record_buffer_put(gnutls_session_t session,
-			  content_type_t type, gnutls_uint64 * seq,
+			  content_type_t type, uint64_t seq,
 			  mbuffer_st * bufel);
 
 inline static int _gnutls_record_buffer_get_size(gnutls_session_t session)
 {
 	return session->internals.record_buffer.byte_length;
 }
+
+#define NO_TIMEOUT_FUNC_SET(session) unlikely(session->internals.pull_timeout_func == gnutls_system_recv_timeout \
+	     && session->internals.pull_func != system_read)
 
 /*-
  * record_check_unprocessed:
@@ -98,6 +104,7 @@ inline static void _gnutls_handshake_recv_buffer_clear(gnutls_session_t
 		_gnutls_handshake_buffer_clear(&session->internals.
 					       handshake_recv_buffer[i]);
 	session->internals.handshake_recv_buffer_size = 0;
+	_mbuffer_head_clear(&session->internals.handshake_header_recv_buffer);
 }
 
 inline static void _gnutls_handshake_recv_buffer_init(gnutls_session_t
@@ -109,6 +116,7 @@ inline static void _gnutls_handshake_recv_buffer_init(gnutls_session_t
 					      handshake_recv_buffer[i]);
 	}
 	session->internals.handshake_recv_buffer_size = 0;
+	_mbuffer_head_init(&session->internals.handshake_header_recv_buffer);
 }
 
 int _gnutls_parse_record_buffered_msgs(gnutls_session_t session);
@@ -122,4 +130,4 @@ _gnutls_recv_in_buffers(gnutls_session_t session, content_type_t type,
 	_mbuffer_head_clear( &session->internals.handshake_send_buffer); \
 	_gnutls_handshake_recv_buffer_clear( session);
 
-#endif
+#endif /* GNUTLS_LIB_BUFFERS_H */

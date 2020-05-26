@@ -43,13 +43,13 @@ int main()
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <assert.h>
 #include <gnutls/gnutls.h>
 #include <gnutls/dtls.h>
 #include <signal.h>
 
+#include "cert-common.h"
 #include "utils.h"
-
-static void terminate(void);
 
 /* This program tests that the client does not send the
  * status request extension if GNUTLS_NO_EXTENSIONS is set.
@@ -64,48 +64,6 @@ static void client_log_func(int level, const char *str)
 {
 	fprintf(stderr, "client|<%d>| %s", level, str);
 }
-
-static unsigned char server_cert_pem[] =
-    "-----BEGIN CERTIFICATE-----\n"
-    "MIICVjCCAcGgAwIBAgIERiYdMTALBgkqhkiG9w0BAQUwGTEXMBUGA1UEAxMOR251\n"
-    "VExTIHRlc3QgQ0EwHhcNMDcwNDE4MTMyOTIxWhcNMDgwNDE3MTMyOTIxWjA3MRsw\n"
-    "GQYDVQQKExJHbnVUTFMgdGVzdCBzZXJ2ZXIxGDAWBgNVBAMTD3Rlc3QuZ251dGxz\n"
-    "Lm9yZzCBnDALBgkqhkiG9w0BAQEDgYwAMIGIAoGA17pcr6MM8C6pJ1aqU46o63+B\n"
-    "dUxrmL5K6rce+EvDasTaDQC46kwTHzYWk95y78akXrJutsoKiFV1kJbtple8DDt2\n"
-    "DZcevensf9Op7PuFZKBroEjOd35znDET/z3IrqVgbtm2jFqab7a+n2q9p/CgMyf1\n"
-    "tx2S5Zacc1LWn9bIjrECAwEAAaOBkzCBkDAMBgNVHRMBAf8EAjAAMBoGA1UdEQQT\n"
-    "MBGCD3Rlc3QuZ251dGxzLm9yZzATBgNVHSUEDDAKBggrBgEFBQcDATAPBgNVHQ8B\n"
-    "Af8EBQMDB6AAMB0GA1UdDgQWBBTrx0Vu5fglyoyNgw106YbU3VW0dTAfBgNVHSME\n"
-    "GDAWgBTpPBz7rZJu5gakViyi4cBTJ8jylTALBgkqhkiG9w0BAQUDgYEAaFEPTt+7\n"
-    "bzvBuOf7+QmeQcn29kT6Bsyh1RHJXf8KTk5QRfwp6ogbp94JQWcNQ/S7YDFHglD1\n"
-    "AwUNBRXwd3riUsMnsxgeSDxYBfJYbDLeohNBsqaPDJb7XailWbMQKfAbFQ8cnOxg\n"
-    "rOKLUQRWJ0K3HyXRMhbqjdLIaQiCvQLuizo=\n" "-----END CERTIFICATE-----\n";
-
-const gnutls_datum_t server_cert = { server_cert_pem,
-	sizeof(server_cert_pem)
-};
-
-static unsigned char server_key_pem[] =
-    "-----BEGIN RSA PRIVATE KEY-----\n"
-    "MIICXAIBAAKBgQDXulyvowzwLqknVqpTjqjrf4F1TGuYvkrqtx74S8NqxNoNALjq\n"
-    "TBMfNhaT3nLvxqResm62ygqIVXWQlu2mV7wMO3YNlx696ex/06ns+4VkoGugSM53\n"
-    "fnOcMRP/PciupWBu2baMWppvtr6far2n8KAzJ/W3HZLllpxzUtaf1siOsQIDAQAB\n"
-    "AoGAYAFyKkAYC/PYF8e7+X+tsVCHXppp8AoP8TEZuUqOZz/AArVlle/ROrypg5kl\n"
-    "8YunrvUdzH9R/KZ7saNZlAPLjZyFG9beL/am6Ai7q7Ma5HMqjGU8kTEGwD7K+lbG\n"
-    "iomokKMOl+kkbY/2sI5Czmbm+/PqLXOjtVc5RAsdbgvtmvkCQQDdV5QuU8jap8Hs\n"
-    "Eodv/tLJ2z4+SKCV2k/7FXSKWe0vlrq0cl2qZfoTUYRnKRBcWxc9o92DxK44wgPi\n"
-    "oMQS+O7fAkEA+YG+K9e60sj1K4NYbMPAbYILbZxORDecvP8lcphvwkOVUqbmxOGh\n"
-    "XRmTZUuhBrJhJKKf6u7gf3KWlPl6ShKEbwJASC118cF6nurTjuLf7YKARDjNTEws\n"
-    "qZEeQbdWYINAmCMj0RH2P0mvybrsXSOD5UoDAyO7aWuqkHGcCLv6FGG+qwJAOVqq\n"
-    "tXdUucl6GjOKKw5geIvRRrQMhb/m5scb+5iw8A4LEEHPgGiBaF5NtJZLALgWfo5n\n"
-    "hmC8+G8F0F78znQtPwJBANexu+Tg5KfOnzSILJMo3oXiXhf5PqXIDmbN0BKyCKAQ\n"
-    "LfkcEcUbVfmDaHpvzwY9VEaoMOKVLitETXdNSxVpvWM=\n"
-    "-----END RSA PRIVATE KEY-----\n";
-
-const gnutls_datum_t server_key = { server_key_pem,
-	sizeof(server_key_pem)
-};
-
 
 static int handshake_callback(gnutls_session_t session, unsigned int htype,
 	unsigned post, unsigned int incoming, const gnutls_datum_t *msg)
@@ -131,13 +89,12 @@ static int status_func(gnutls_session_t session, void *ptr, gnutls_datum_t *resp
 
 #define MAX_BUF 1024
 
-static void client(int fd)
+static void client(int fd, const char *prio)
 {
 	int ret;
 	char buffer[MAX_BUF + 1];
 	gnutls_certificate_credentials_t x509_cred;
 	gnutls_session_t session;
-	/* Need to enable anonymous KX specifically. */
 
 	global_init();
 
@@ -150,10 +107,9 @@ static void client(int fd)
 
 	/* Initialize TLS session
 	 */
-	gnutls_init(&session, GNUTLS_CLIENT|GNUTLS_NO_EXTENSIONS);
+	assert(gnutls_init(&session, GNUTLS_CLIENT|GNUTLS_NO_EXTENSIONS)>=0);
 
-	/* Use default priorities */
-	gnutls_priority_set_direct(session, "NORMAL:-KX-ALL:+ECDHE-RSA", NULL);
+	assert(gnutls_priority_set_direct(session, prio, NULL)>=0);
 
 	/* put the anonymous credentials to the current session
 	 */
@@ -175,11 +131,12 @@ static void client(int fd)
 
 	if (ret < 0) {
 		fail("client: Handshake failed: %s\n", gnutls_strerror(ret));
-		terminate();
 	} else {
 		if (debug)
 			success("client: Handshake was completed\n");
 	}
+
+	assert((gnutls_session_get_flags(session) & GNUTLS_SFLAGS_CLI_REQUESTED_OCSP) == 0);
 
 	if (debug)
 		success("client: TLS version is: %s\n",
@@ -200,7 +157,6 @@ static void client(int fd)
 		goto end;
 	} else if (ret < 0) {
 		fail("client: Error: %s\n", gnutls_strerror(ret));
-		terminate();
 	}
 
 	gnutls_bye(session, GNUTLS_SHUT_WR);
@@ -217,16 +173,7 @@ static void client(int fd)
 }
 
 
-/* These are global */
-pid_t child;
-
-static void terminate(void)
-{
-	kill(child, SIGTERM);
-	exit(1);
-}
-
-static void server(int fd)
+static void server(int fd, const char *prio)
 {
 	int ret;
 	char buffer[MAX_BUF + 1];
@@ -256,10 +203,7 @@ static void server(int fd)
 					   GNUTLS_HOOK_PRE,
 					   handshake_callback);
 
-	/* avoid calling all the priority functions, since the defaults
-	 * are adequate.
-	 */
-	gnutls_priority_set_direct(session, "NORMAL", NULL);
+	assert(gnutls_priority_set_direct(session, prio, NULL)>=0);
 
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, x509_cred);
 
@@ -272,6 +216,8 @@ static void server(int fd)
 		/* failure is expected here */
 		goto end;
 	}
+
+	assert((gnutls_session_get_flags(session) & GNUTLS_SFLAGS_CLI_REQUESTED_OCSP) == 0);
 
 	if (debug) {
 		success("server: Handshake was completed\n");
@@ -303,10 +249,14 @@ static void ch_handler(int sig)
 	return;
 }
 
-void doit(void)
+static
+void start(const char *prio)
 {
+	pid_t child;
 	int fd[2];
 	int ret, status = 0;
+
+	success("trying %s\n", prio);
 
 	signal(SIGCHLD, ch_handler);
 	signal(SIGPIPE, SIG_IGN);
@@ -327,14 +277,20 @@ void doit(void)
 	if (child) {
 		/* parent */
 		close(fd[1]);
-		client(fd[0]);
+		client(fd[0], prio);
 		waitpid(child, &status, 0);
 		check_wait_status(status);
 	} else {
 		close(fd[0]);
-		server(fd[1]);
+		server(fd[1], prio);
 		exit(0);
 	}
 }
 
+void doit(void)
+{
+	start("NORMAL:-VERS-ALL:+VERS-TLS1.2");
+	start("NORMAL:-VERS-ALL:+VERS-TLS1.3");
+	start("NORMAL");
+}
 #endif				/* _WIN32 */

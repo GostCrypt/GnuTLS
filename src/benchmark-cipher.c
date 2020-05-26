@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see
- * <http://www.gnu.org/licenses/>.
+ * <https://www.gnu.org/licenses/>.
  *
  * Written by Nikos Mavrogiannopoulos <nmav@gnutls.org>.
  */
@@ -153,6 +153,12 @@ static void cipher_bench(int algo, int size, int aead)
 		return;
 	memset(_key, 0xf0, keysize);
 
+	/* For AES-XTS, the block and tweak key must be different */
+	if (algo == GNUTLS_CIPHER_AES_128_XTS ||
+		algo == GNUTLS_CIPHER_AES_256_XTS) {
+		memset((uint8_t *)_key + (keysize / 2), 0x0f, (keysize / 2));
+	}
+
 	_iv = malloc(ivsize);
 	if (_iv == NULL) {
 		free(_key);
@@ -231,7 +237,7 @@ static void cipher_bench(int algo, int size, int aead)
 static void mac_bench(int algo, int size)
 {
 	void *_key;
-	int blocksize = gnutls_hmac_get_len(algo);
+	int key_size = gnutls_hmac_get_key_size(algo);
 	int step = size * 1024;
 	struct benchmark_st st;
 	void *input;
@@ -240,10 +246,10 @@ static void mac_bench(int algo, int size)
 	ALLOCM(input, MAX_MEM);
 	i = input;
 
-	_key = malloc(blocksize);
+	_key = malloc(key_size);
 	if (_key == NULL)
 		return;
-	memset(_key, 0xf0, blocksize);
+	memset(_key, 0xf0, key_size);
 
 	printf("%16s ", gnutls_mac_get_name(algo));
 	fflush(stdout);
@@ -253,7 +259,7 @@ static void mac_bench(int algo, int size)
 	start_benchmark(&st);
 
 	do {
-		gnutls_hmac_fast(algo, _key, blocksize, i, step, _key);
+		gnutls_hmac_fast(algo, _key, key_size, i, step, _key);
 		st.size += step;
 		INC(input, i, step);
 	}
@@ -275,27 +281,41 @@ void benchmark_cipher(int debug_level)
 	page_size = sysconf(_SC_PAGESIZE);
 #endif
 
-	printf("Checking cipher-MAC combinations, payload size: %u\n", size * 1024);
+	printf("Checking AEAD ciphers, payload size: %u\n", size * 1024);
 	cipher_bench(GNUTLS_CIPHER_AES_128_GCM, size, 1);
 	cipher_bench(GNUTLS_CIPHER_AES_128_CCM, size, 1);
 	cipher_bench(GNUTLS_CIPHER_CHACHA20_POLY1305, size, 1);
-	cipher_bench(GNUTLS_CIPHER_NULL, size, 1);
 
+	printf("\nChecking cipher-MAC combinations, payload size: %u\n", size * 1024);
 	cipher_mac_bench(GNUTLS_CIPHER_SALSA20_256, GNUTLS_MAC_SHA1, size);
 	cipher_mac_bench(GNUTLS_CIPHER_AES_128_CBC, GNUTLS_MAC_SHA1, size);
 	cipher_mac_bench(GNUTLS_CIPHER_AES_128_CBC, GNUTLS_MAC_SHA256,
 			 size);
+#ifdef ENABLE_GOST
+	cipher_mac_bench(GNUTLS_CIPHER_GOST28147_TC26Z_CNT, GNUTLS_MAC_GOST28147_TC26Z_IMIT,
+			 size);
+#endif
 
 	printf("\nChecking MAC algorithms, payload size: %u\n", size * 1024);
 	mac_bench(GNUTLS_MAC_SHA1, size);
 	mac_bench(GNUTLS_MAC_SHA256, size);
 	mac_bench(GNUTLS_MAC_SHA512, size);
+#ifdef ENABLE_GOST
+	mac_bench(GNUTLS_MAC_GOST28147_TC26Z_IMIT, size);
+	mac_bench(GNUTLS_MAC_GOSTR_94, size);
+	mac_bench(GNUTLS_MAC_STREEBOG_512, size);
+#endif
 
 	printf("\nChecking ciphers, payload size: %u\n", size * 1024);
 	cipher_bench(GNUTLS_CIPHER_3DES_CBC, size, 0);
 	cipher_bench(GNUTLS_CIPHER_AES_128_CBC, size, 0);
-	cipher_bench(GNUTLS_CIPHER_ARCFOUR, size, 0);
+	cipher_bench(GNUTLS_CIPHER_AES_128_XTS, size, 0);
+	cipher_bench(GNUTLS_CIPHER_AES_256_XTS, size, 0);
 	cipher_bench(GNUTLS_CIPHER_SALSA20_256, size, 0);
+	cipher_bench(GNUTLS_CIPHER_NULL, size, 1);
+#ifdef ENABLE_GOST
+	cipher_bench(GNUTLS_CIPHER_GOST28147_TC26Z_CNT, size, 0);
+#endif
 
 	gnutls_global_deinit();
 }

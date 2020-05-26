@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -54,6 +54,7 @@ int _gnutls_hash_init(digest_hd_st * dig, const mac_entry_st * e)
 		dig->hash = cc->hash;
 		dig->output = cc->output;
 		dig->deinit = cc->deinit;
+		dig->copy = cc->copy;
 
 		return 0;
 	}
@@ -67,6 +68,7 @@ int _gnutls_hash_init(digest_hd_st * dig, const mac_entry_st * e)
 	dig->hash = _gnutls_digest_ops.hash;
 	dig->output = _gnutls_digest_ops.output;
 	dig->deinit = _gnutls_digest_ops.deinit;
+	dig->copy = _gnutls_digest_ops.copy;
 
 	return 0;
 }
@@ -78,11 +80,28 @@ int _gnutls_digest_exists(gnutls_digest_algorithm_t algo)
 {
 	const gnutls_crypto_digest_st *cc = NULL;
 
+	if (is_mac_algo_forbidden(algo))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
 	cc = _gnutls_get_crypto_digest(algo);
 	if (cc != NULL)
 		return 1;
 
 	return _gnutls_digest_ops.exists(algo);
+}
+
+int _gnutls_hash_copy(const digest_hd_st * handle, digest_hd_st * dst)
+{
+	if (handle->copy == NULL)
+		return gnutls_assert_val(GNUTLS_E_HASH_FAILED);
+
+	*dst = *handle; /* copy data */
+	dst->handle = handle->copy(handle->handle);
+
+	if (dst->handle == NULL)
+		return GNUTLS_E_HASH_FAILED;
+
+	return 0;
 }
 
 void _gnutls_hash_deinit(digest_hd_st * handle, void *digest)
@@ -178,6 +197,9 @@ int _gnutls_mac_exists(gnutls_mac_algorithm_t algo)
 	if (algo == GNUTLS_MAC_AEAD)
 		return 1;
 
+	if (is_mac_algo_forbidden(algo))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
 	cc = _gnutls_get_crypto_mac(algo);
 	if (cc != NULL)
 		return 1;
@@ -219,6 +241,7 @@ _gnutls_mac_init(mac_hd_st * mac, const mac_entry_st * e,
 		mac->setnonce = cc->setnonce;
 		mac->output = cc->output;
 		mac->deinit = cc->deinit;
+		mac->copy = cc->copy;
 
 		return 0;
 	}
@@ -233,12 +256,27 @@ _gnutls_mac_init(mac_hd_st * mac, const mac_entry_st * e,
 	mac->setnonce = _gnutls_mac_ops.setnonce;
 	mac->output = _gnutls_mac_ops.output;
 	mac->deinit = _gnutls_mac_ops.deinit;
+	mac->copy = _gnutls_mac_ops.copy;
 
 	if (_gnutls_mac_ops.setkey(mac->handle, key, keylen) < 0) {
 		gnutls_assert();
 		mac->deinit(mac->handle);
 		return GNUTLS_E_HASH_FAILED;
 	}
+
+	return 0;
+}
+
+int _gnutls_mac_copy(const mac_hd_st * handle, mac_hd_st * dst)
+{
+	if (handle->copy == NULL)
+		return gnutls_assert_val(GNUTLS_E_HASH_FAILED);
+
+	*dst = *handle; /* copy data */
+	dst->handle = handle->copy(handle->handle);
+
+	if (dst->handle == NULL)
+		return GNUTLS_E_HASH_FAILED;
 
 	return 0;
 }
@@ -465,38 +503,6 @@ ssl3_md5(int i, uint8_t * secret, int secret_len,
 
 	_gnutls_hash_deinit(&td, digest);
 	return 0;
-}
-
-int
-_gnutls_ssl3_hash_md5(const void *first, int first_len,
-		      const void *second, int second_len,
-		      int ret_len, uint8_t * ret)
-{
-	uint8_t digest[MAX_HASH_SIZE];
-	digest_hd_st td;
-	int block = MD5_DIGEST_OUTPUT;
-	int rc;
-
-	rc = _gnutls_hash_init(&td, mac_to_entry(GNUTLS_MAC_MD5));
-	if (rc < 0) {
-		gnutls_assert();
-		return rc;
-	}
-
-	_gnutls_hash(&td, first, first_len);
-	_gnutls_hash(&td, second, second_len);
-
-	_gnutls_hash_deinit(&td, digest);
-
-	if (ret_len > block) {
-		gnutls_assert();
-		return GNUTLS_E_INTERNAL_ERROR;
-	}
-
-	memcpy(ret, digest, ret_len);
-
-	return 0;
-
 }
 
 int

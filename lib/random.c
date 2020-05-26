@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -29,14 +29,11 @@
 #include "locks.h"
 #include <fips.h>
 
-#ifdef HAVE_THREADS_H
-# include <threads.h>
-#elif defined(__GNUC__)
-# define _Thread_local __thread
-#else
-# error Unsupported platform
-#endif
+#include "gthreads.h"
 
+#if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+extern gnutls_crypto_rnd_st _gnutls_fuzz_rnd_ops;
+#endif
 
 /* Per thread context of random generator, and a flag to indicate initialization */
 static _Thread_local void *gnutls_rnd_ctx;
@@ -100,7 +97,13 @@ int _gnutls_rnd_preinit(void)
 {
 	int ret;
 
-#ifdef ENABLE_FIPS140
+#if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+# warning Insecure PRNG is enabled
+	ret = gnutls_crypto_rnd_register(100, &_gnutls_fuzz_rnd_ops);
+	if (ret < 0)
+		return ret;
+
+#elif defined(ENABLE_FIPS140)
 	/* The FIPS140 random generator is only enabled when we are compiled
 	 * with FIPS support, _and_ the system requires FIPS140.
 	 */

@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -113,7 +113,8 @@ aes_gcm_cipher_setkey(void *_ctx, const void *key, size_t keysize)
 	} else if (keysize == 32) {
 		GCM_SET_KEY(ctx, padlock_aes256_set_encrypt_key, padlock_aes_encrypt,
 			    key);
-	} else abort();
+	} else
+		return GNUTLS_E_INVALID_REQUEST;
 
 	return 0;
 }

@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -30,6 +30,8 @@
 #include <random.h>
 #include <crypto.h>
 #include <fips.h>
+#include "crypto-api.h"
+#include "iov.h"
 
 typedef struct api_cipher_hd_st {
 	cipher_hd_st ctx_enc;
@@ -61,8 +63,11 @@ gnutls_cipher_init(gnutls_cipher_hd_t * handle,
 	int ret;
 	const cipher_entry_st* e;
 
+	if (is_cipher_algo_forbidden(cipher))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
 	e = cipher_to_entry(cipher);
-	if (e == NULL)
+	if (e == NULL || (e->flags & GNUTLS_CIPHER_FLAG_ONLY_AEAD))
 		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
 
 	*handle = gnutls_calloc(1, sizeof(api_cipher_hd_st));
@@ -134,9 +139,7 @@ gnutls_cipher_add_auth(gnutls_cipher_hd_t handle, const void *ptext,
 	if (_gnutls_cipher_is_aead(&h->ctx_enc) == 0)
 		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
 
-	_gnutls_cipher_auth(&h->ctx_enc, ptext, ptext_size);
-
-	return 0;
+	return _gnutls_cipher_auth(&h->ctx_enc, ptext, ptext_size);
 }
 
 /**
@@ -155,10 +158,42 @@ gnutls_cipher_set_iv(gnutls_cipher_hd_t handle, void *iv, size_t ivlen)
 {
 	api_cipher_hd_st *h = handle;
 
-	_gnutls_cipher_setiv(&h->ctx_enc, iv, ivlen);
+	if (_gnutls_cipher_setiv(&h->ctx_enc, iv, ivlen) < 0) {
+		_gnutls_switch_lib_state(LIB_STATE_ERROR);
+	}
 
 	if (_gnutls_cipher_type(h->ctx_enc.e) == CIPHER_BLOCK)
-		_gnutls_cipher_setiv(&h->ctx_dec, iv, ivlen);
+		if (_gnutls_cipher_setiv(&h->ctx_dec, iv, ivlen) < 0) {
+			_gnutls_switch_lib_state(LIB_STATE_ERROR);
+		}
+}
+
+/*-
+ * _gnutls_cipher_get_iv:
+ * @handle: is a #gnutls_cipher_hd_t type
+ * @iv: the IV to set
+ * @ivlen: the length of the IV
+ *
+ * This function will retrieve the internally calculated IV value. It is
+ * intended to be used  for modes like CFB. @iv must have @ivlen length
+ * at least.
+ *
+ * This is solely for validation purposes of our crypto
+ * implementation.  For other purposes, the IV can be typically
+ * calculated from the initial IV value and the subsequent ciphertext
+ * values.  As such, this function only works with the internally
+ * registered ciphers.
+ *
+ * Returns: The length of IV or a negative error code on error.
+ *
+ * Since: 3.6.8
+ -*/
+int
+_gnutls_cipher_get_iv(gnutls_cipher_hd_t handle, void *iv, size_t ivlen)
+{
+	api_cipher_hd_st *h = handle;
+
+	return _gnutls_cipher_getiv(&h->ctx_enc, iv, ivlen);
 }
 
 /**
@@ -299,6 +334,7 @@ void gnutls_cipher_deinit(gnutls_cipher_hd_t handle)
 
 /* HMAC */
 
+
 /**
  * gnutls_hmac_init:
  * @dig: is a #gnutls_hmac_hd_t type
@@ -323,15 +359,9 @@ gnutls_hmac_init(gnutls_hmac_hd_t * dig,
 		 gnutls_mac_algorithm_t algorithm,
 		 const void *key, size_t keylen)
 {
-#ifdef ENABLE_FIPS140
 	/* MD5 is only allowed internally for TLS */
-	if (_gnutls_fips_mode_enabled() != 0 &&
-		_gnutls_get_lib_state() != LIB_STATE_SELFTEST) {
-
-		if (algorithm == GNUTLS_MAC_MD5)
-			return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
-	}
-#endif
+	if (is_mac_algo_forbidden(algorithm))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
 
 	*dig = gnutls_malloc(sizeof(mac_hd_st));
 	if (*dig == NULL) {
@@ -426,6 +456,23 @@ unsigned gnutls_hmac_get_len(gnutls_mac_algorithm_t algorithm)
 }
 
 /**
+ * gnutls_hmac_get_key_size:
+ * @algorithm: the mac algorithm to use
+ *
+ * This function will return the size of the key to be used with this
+ * algorithm. On the algorithms which may accept arbitrary key sizes,
+ * the returned size is the MAC key size used in the TLS protocol.
+ *
+ * Returns: The key size or zero on error.
+ *
+ * Since: 3.6.12
+ **/
+unsigned gnutls_hmac_get_key_size(gnutls_mac_algorithm_t algorithm)
+{
+	return _gnutls_mac_get_key_size(mac_to_entry(algorithm));
+}
+
+/**
  * gnutls_hmac_fast:
  * @algorithm: the hash algorithm to use
  * @key: the key to use
@@ -435,7 +482,8 @@ unsigned gnutls_hmac_get_len(gnutls_mac_algorithm_t algorithm)
  * @digest: is the output value of the hash
  *
  * This convenience function will hash the given data and return output
- * on a single call.
+ * on a single call. Note, this call will not work for MAC algorithms
+ * that require nonce (like UMAC or GMAC).
  *
  * Returns: Zero or a negative error code on error.
  *
@@ -446,8 +494,43 @@ gnutls_hmac_fast(gnutls_mac_algorithm_t algorithm,
 		 const void *key, size_t keylen,
 		 const void *ptext, size_t ptext_len, void *digest)
 {
+	if (is_mac_algo_forbidden(algorithm))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
 	return _gnutls_mac_fast(algorithm, key, keylen, ptext, ptext_len,
 				digest);
+}
+
+/**
+ * gnutls_hmac_copy:
+ * @handle: is a #gnutls_hmac_hd_t type
+ *
+ * This function will create a copy of MAC context, containing all its current
+ * state. Copying contexts for MACs registered using
+ * gnutls_crypto_register_mac() is not supported and will always result in an
+ * error.
+ *
+ * Returns: new MAC context or NULL in case of an error.
+ *
+ * Since: 3.6.9
+ */
+gnutls_hmac_hd_t gnutls_hmac_copy(gnutls_hmac_hd_t handle)
+{
+	gnutls_hmac_hd_t dig;
+
+	dig = gnutls_malloc(sizeof(mac_hd_st));
+	if (dig == NULL) {
+		gnutls_assert();
+		return NULL;
+	}
+
+	if (_gnutls_mac_copy((const mac_hd_st *) handle, (mac_hd_st *)dig) != GNUTLS_E_SUCCESS) {
+		gnutls_assert();
+		gnutls_free(dig);
+		return NULL;
+	}
+
+	return dig;
 }
 
 /* HASH */
@@ -470,15 +553,8 @@ int
 gnutls_hash_init(gnutls_hash_hd_t * dig,
 		 gnutls_digest_algorithm_t algorithm)
 {
-#ifdef ENABLE_FIPS140
-	/* MD5 is only allowed internally for TLS */
-	if (_gnutls_fips_mode_enabled() != 0 &&
-		_gnutls_get_lib_state() != LIB_STATE_SELFTEST) {
-
-		if (algorithm == GNUTLS_DIG_MD5)
-			return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
-	}
-#endif
+	if (is_mac_algo_forbidden(algorithm))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
 
 	*dig = gnutls_malloc(sizeof(digest_hd_st));
 	if (*dig == NULL) {
@@ -573,7 +649,42 @@ int
 gnutls_hash_fast(gnutls_digest_algorithm_t algorithm,
 		 const void *ptext, size_t ptext_len, void *digest)
 {
+	if (is_mac_algo_forbidden(algorithm))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
 	return _gnutls_hash_fast(algorithm, ptext, ptext_len, digest);
+}
+
+/**
+ * gnutls_hash_copy:
+ * @handle: is a #gnutls_hash_hd_t type
+ *
+ * This function will create a copy of Message Digest context, containing all
+ * its current state. Copying contexts for Message Digests registered using
+ * gnutls_crypto_register_digest() is not supported and will always result in
+ * an error.
+ *
+ * Returns: new Message Digest context or NULL in case of an error.
+ *
+ * Since: 3.6.9
+ */
+gnutls_hash_hd_t gnutls_hash_copy(gnutls_hash_hd_t handle)
+{
+	gnutls_hash_hd_t dig;
+
+	dig = gnutls_malloc(sizeof(digest_hd_st));
+	if (dig == NULL) {
+		gnutls_assert();
+		return NULL;
+	}
+
+	if (_gnutls_hash_copy((const digest_hd_st *) handle, (digest_hd_st *)dig) != GNUTLS_E_SUCCESS) {
+		gnutls_assert();
+		gnutls_free(dig);
+		return NULL;
+	}
+
+	return dig;
 }
 
 /**
@@ -622,9 +733,6 @@ int gnutls_key_generate(gnutls_datum_t * key, unsigned int key_size)
 }
 
 /* AEAD API */
-typedef struct api_aead_cipher_hd_st {
-	cipher_hd_st ctx_enc;
-} api_aead_cipher_hd_st;
 
 /**
  * gnutls_aead_cipher_init:
@@ -641,12 +749,15 @@ typedef struct api_aead_cipher_hd_st {
  *
  * Since: 3.4.0
  **/
-int gnutls_aead_cipher_init(gnutls_aead_cipher_hd_t * handle,
+int gnutls_aead_cipher_init(gnutls_aead_cipher_hd_t *handle,
 			    gnutls_cipher_algorithm_t cipher,
-			    const gnutls_datum_t * key)
+			    const gnutls_datum_t *key)
 {
 	api_aead_cipher_hd_st *h;
-	const cipher_entry_st* e;
+	const cipher_entry_st *e;
+
+	if (is_cipher_algo_forbidden(cipher))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
 
 	e = cipher_to_entry(cipher);
 	if (e == NULL || e->type != CIPHER_AEAD)
@@ -660,9 +771,7 @@ int gnutls_aead_cipher_init(gnutls_aead_cipher_hd_t * handle,
 
 	h = *handle;
 
-	return
-	    _gnutls_cipher_init(&h->ctx_enc, e, key,
-				NULL, 1);
+	return _gnutls_aead_cipher_init(h, cipher, key);
 }
 
 /**
@@ -670,20 +779,22 @@ int gnutls_aead_cipher_init(gnutls_aead_cipher_hd_t * handle,
  * @handle: is a #gnutls_aead_cipher_hd_t type.
  * @nonce: the nonce to set
  * @nonce_len: The length of the nonce
- * @auth: the data to be authenticated
+ * @auth: additional data to be authenticated
  * @auth_len: The length of the data
  * @tag_size: The size of the tag to use (use zero for the default)
- * @ctext: the data to decrypt
+ * @ctext: the data to decrypt (including the authentication tag)
  * @ctext_len: the length of data to decrypt (includes tag size)
  * @ptext: the decrypted data
  * @ptext_len: the length of decrypted data (initially must hold the maximum available size)
  *
  * This function will decrypt the given data using the algorithm
- * specified by the context. This function must be provided the whole
- * data to be decrypted, including the tag, and will fail if the tag
- * verification fails.
+ * specified by the context. This function must be provided the complete
+ * data to be decrypted, including the authentication tag. On several
+ * AEAD ciphers, the authentication tag is appended to the ciphertext,
+ * though this is not a general rule. This function will fail if
+ * the tag verification fails.
  *
- * Returns: Zero or a negative error code on error.
+ * Returns: Zero or a negative error code on verification failure or other error.
  *
  * Since: 3.4.0
  **/
@@ -727,12 +838,12 @@ gnutls_aead_cipher_decrypt(gnutls_aead_cipher_hd_t handle,
  * @handle: is a #gnutls_aead_cipher_hd_t type.
  * @nonce: the nonce to set
  * @nonce_len: The length of the nonce
- * @auth: the data to be authenticated
+ * @auth: additional data to be authenticated
  * @auth_len: The length of the data
  * @tag_size: The size of the tag to use (use zero for the default)
  * @ptext: the data to encrypt
  * @ptext_len: The length of data to encrypt
- * @ctext: the encrypted data
+ * @ctext: the encrypted data including authentication tag
  * @ctext_len: the length of encrypted data (initially must hold the maximum available size, including space for tag)
  *
  * This function will encrypt the given data using the algorithm
@@ -777,6 +888,505 @@ gnutls_aead_cipher_encrypt(gnutls_aead_cipher_hd_t handle,
 	return 0;
 }
 
+struct iov_store_st {
+	void *data;
+	size_t size;
+	unsigned allocated;
+};
+
+static void iov_store_free(struct iov_store_st *s)
+{
+	if (s->allocated) {
+		gnutls_free(s->data);
+		s->allocated = 0;
+	}
+}
+
+static int iov_store_grow(struct iov_store_st *s, size_t length)
+{
+	if (s->allocated || s->data == NULL) {
+		s->size += length;
+		s->data = gnutls_realloc(s->data, s->size);
+		if (s->data == NULL)
+			return gnutls_assert_val(GNUTLS_E_MEMORY_ERROR);
+		s->allocated = 1;
+	} else {
+		void *data = s->data;
+		size_t size = s->size + length;
+		s->data = gnutls_malloc(size);
+		memcpy(s->data, data, s->size);
+		s->size += length;
+	}
+	return 0;
+}
+
+static int
+copy_from_iov(struct iov_store_st *dst, const giovec_t *iov, int iovcnt)
+{
+	memset(dst, 0, sizeof(*dst));
+	if (iovcnt == 0) {
+		return 0;
+	} else if (iovcnt == 1) {
+		dst->data = iov[0].iov_base;
+		dst->size = iov[0].iov_len;
+		/* implies: dst->allocated = 0; */
+		return 0;
+	} else {
+		int i;
+		uint8_t *p;
+
+		dst->size = 0;
+		for (i=0;i<iovcnt;i++)
+			dst->size += iov[i].iov_len;
+		dst->data = gnutls_malloc(dst->size);
+		if (dst->data == NULL)
+			return gnutls_assert_val(GNUTLS_E_MEMORY_ERROR);
+
+		p = dst->data;
+		for (i=0;i<iovcnt;i++) {
+			memcpy(p, iov[i].iov_base, iov[i].iov_len);
+			p += iov[i].iov_len;
+		}
+
+		dst->allocated = 1;
+		return 0;
+	}
+}
+
+static int
+copy_to_iov(struct iov_store_st *src, size_t size,
+	    const giovec_t *iov, int iovcnt)
+{
+	size_t offset = 0;
+	int i;
+
+	if (unlikely(src->size < size))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+
+	for (i = 0; i < iovcnt && size > 0; i++) {
+		size_t to_copy = MIN(size, iov[i].iov_len);
+		memcpy(iov[i].iov_base, (uint8_t *) src->data + offset, to_copy);
+		offset += to_copy;
+		size -= to_copy;
+	}
+	if (size > 0)
+		return gnutls_assert_val(GNUTLS_E_SHORT_MEMORY_BUFFER);
+	return 0;
+}
+
+
+/**
+ * gnutls_aead_cipher_encryptv:
+ * @handle: is a #gnutls_aead_cipher_hd_t type.
+ * @nonce: the nonce to set
+ * @nonce_len: The length of the nonce
+ * @auth_iov: additional data to be authenticated
+ * @auth_iovcnt: The number of buffers in @auth_iov
+ * @tag_size: The size of the tag to use (use zero for the default)
+ * @iov: the data to be encrypted
+ * @iovcnt: The number of buffers in @iov
+ * @ctext: the encrypted data including authentication tag
+ * @ctext_len: the length of encrypted data (initially must hold the maximum available size, including space for tag)
+ *
+ * This function will encrypt the provided data buffers using the algorithm
+ * specified by the context. The output data will contain the
+ * authentication tag.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.3
+ **/
+int
+gnutls_aead_cipher_encryptv(gnutls_aead_cipher_hd_t handle,
+			    const void *nonce, size_t nonce_len,
+			    const giovec_t *auth_iov, int auth_iovcnt,
+			    size_t tag_size,
+			    const giovec_t *iov, int iovcnt,
+			    void *ctext, size_t *ctext_len)
+{
+	api_aead_cipher_hd_st *h = handle;
+	ssize_t ret;
+	uint8_t *dst;
+	size_t dst_size, total = 0;
+	uint8_t *p;
+	size_t len;
+	size_t blocksize = handle->ctx_enc.e->blocksize;
+	struct iov_iter_st iter;
+
+	/* Limitation: this function provides an optimization under the internally registered
+	 * AEAD ciphers. When an AEAD cipher is used registered with gnutls_crypto_register_aead_cipher(),
+	 * then this becomes a convenience function as it missed the lower-level primitives
+	 * necessary for piecemeal encryption. */
+
+	if (tag_size == 0)
+		tag_size = _gnutls_cipher_get_tag_size(h->ctx_enc.e);
+	else if (tag_size > (unsigned)_gnutls_cipher_get_tag_size(h->ctx_enc.e))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+
+	if ((handle->ctx_enc.e->flags & GNUTLS_CIPHER_FLAG_ONLY_AEAD) || handle->ctx_enc.encrypt == NULL) {
+		/* ciphertext cannot be produced in a piecemeal approach */
+		struct iov_store_st auth;
+		struct iov_store_st ptext;
+
+		ret = copy_from_iov(&auth, auth_iov, auth_iovcnt);
+		if (ret < 0)
+			return gnutls_assert_val(ret);
+
+		ret = copy_from_iov(&ptext, iov, iovcnt);
+		if (ret < 0) {
+			iov_store_free(&auth);
+			return gnutls_assert_val(ret);
+		}
+
+		ret = gnutls_aead_cipher_encrypt(handle, nonce, nonce_len,
+						 auth.data, auth.size,
+						 tag_size,
+						 ptext.data, ptext.size,
+						 ctext, ctext_len);
+		iov_store_free(&auth);
+		iov_store_free(&ptext);
+
+		return ret;
+	}
+
+	ret = _gnutls_cipher_setiv(&handle->ctx_enc, nonce, nonce_len);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+
+	ret = _gnutls_iov_iter_init(&iter, auth_iov, auth_iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+		ret = _gnutls_cipher_auth(&handle->ctx_enc, p, ret);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+	}
+
+	dst = ctext;
+	dst_size = *ctext_len;
+
+	ret = _gnutls_iov_iter_init(&iter, iov, iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+		len = ret;
+		ret = _gnutls_cipher_encrypt2(&handle->ctx_enc,
+					      p, len,
+					      dst, dst_size);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		DECR_LEN(dst_size, len);
+		dst += len;
+		total += len;
+	}
+
+	if (dst_size < tag_size)
+		return gnutls_assert_val(GNUTLS_E_SHORT_MEMORY_BUFFER);
+
+	_gnutls_cipher_tag(&handle->ctx_enc, dst, tag_size);
+
+	total += tag_size;
+	*ctext_len = total;
+
+	return 0;
+}
+
+/**
+ * gnutls_aead_cipher_encryptv2:
+ * @handle: is a #gnutls_aead_cipher_hd_t type.
+ * @nonce: the nonce to set
+ * @nonce_len: The length of the nonce
+ * @auth_iov: additional data to be authenticated
+ * @auth_iovcnt: The number of buffers in @auth_iov
+ * @iov: the data to be encrypted
+ * @iovcnt: The number of buffers in @iov
+ * @tag: The authentication tag
+ * @tag_size: The size of the tag to use (use zero for the default)
+ *
+ * This is similar to gnutls_aead_cipher_encrypt(), but it performs
+ * in-place encryption on the provided data buffers.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.10
+ **/
+int
+gnutls_aead_cipher_encryptv2(gnutls_aead_cipher_hd_t handle,
+			     const void *nonce, size_t nonce_len,
+			     const giovec_t *auth_iov, int auth_iovcnt,
+			     const giovec_t *iov, int iovcnt,
+			     void *tag, size_t *tag_size)
+{
+	api_aead_cipher_hd_st *h = handle;
+	ssize_t ret;
+	uint8_t *p;
+	size_t len;
+	ssize_t blocksize = handle->ctx_enc.e->blocksize;
+	struct iov_iter_st iter;
+	size_t _tag_size;
+
+	if (tag_size == NULL || *tag_size == 0)
+		_tag_size = _gnutls_cipher_get_tag_size(h->ctx_enc.e);
+	else
+		_tag_size = *tag_size;
+
+	if (_tag_size > (unsigned)_gnutls_cipher_get_tag_size(h->ctx_enc.e))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+
+	/* Limitation: this function provides an optimization under the internally registered
+	 * AEAD ciphers. When an AEAD cipher is used registered with gnutls_crypto_register_aead_cipher(),
+	 * then this becomes a convenience function as it missed the lower-level primitives
+	 * necessary for piecemeal encryption. */
+	if ((handle->ctx_enc.e->flags & GNUTLS_CIPHER_FLAG_ONLY_AEAD) || handle->ctx_enc.encrypt == NULL) {
+		/* ciphertext cannot be produced in a piecemeal approach */
+		struct iov_store_st auth;
+		struct iov_store_st ptext;
+		size_t ptext_size;
+
+		ret = copy_from_iov(&auth, auth_iov, auth_iovcnt);
+		if (ret < 0)
+			return gnutls_assert_val(ret);
+
+		ret = copy_from_iov(&ptext, iov, iovcnt);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		ptext_size = ptext.size;
+
+		/* append space for tag */
+		ret = iov_store_grow(&ptext, _tag_size);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		ret = gnutls_aead_cipher_encrypt(handle, nonce, nonce_len,
+						 auth.data, auth.size,
+						 _tag_size,
+						 ptext.data, ptext_size,
+						 ptext.data, &ptext.size);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		ret = copy_to_iov(&ptext, ptext_size, iov, iovcnt);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		if (tag != NULL)
+			memcpy(tag,
+			       (uint8_t *) ptext.data + ptext_size,
+			       _tag_size);
+		if (tag_size != NULL)
+			*tag_size = _tag_size;
+
+	fallback_fail:
+		iov_store_free(&auth);
+		iov_store_free(&ptext);
+
+		return ret;
+	}
+
+	ret = _gnutls_cipher_setiv(&handle->ctx_enc, nonce, nonce_len);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+
+	ret = _gnutls_iov_iter_init(&iter, auth_iov, auth_iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+		ret = _gnutls_cipher_auth(&handle->ctx_enc, p, ret);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+	}
+
+	ret = _gnutls_iov_iter_init(&iter, iov, iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+
+		len = ret;
+		ret = _gnutls_cipher_encrypt2(&handle->ctx_enc, p, len, p, len);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+
+		ret = _gnutls_iov_iter_sync(&iter, p, len);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+	}
+
+	if (tag != NULL)
+		_gnutls_cipher_tag(&handle->ctx_enc, tag, _tag_size);
+	if (tag_size != NULL)
+		*tag_size = _tag_size;
+
+	return 0;
+}
+
+/**
+ * gnutls_aead_cipher_decryptv2:
+ * @handle: is a #gnutls_aead_cipher_hd_t type.
+ * @nonce: the nonce to set
+ * @nonce_len: The length of the nonce
+ * @auth_iov: additional data to be authenticated
+ * @auth_iovcnt: The number of buffers in @auth_iov
+ * @iov: the data to decrypt
+ * @iovcnt: The number of buffers in @iov
+ * @tag: The authentication tag
+ * @tag_size: The size of the tag to use (use zero for the default)
+ *
+ * This is similar to gnutls_aead_cipher_decrypt(), but it performs
+ * in-place encryption on the provided data buffers.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.10
+ **/
+int
+gnutls_aead_cipher_decryptv2(gnutls_aead_cipher_hd_t handle,
+			     const void *nonce, size_t nonce_len,
+			     const giovec_t *auth_iov, int auth_iovcnt,
+			     const giovec_t *iov, int iovcnt,
+			     void *tag, size_t tag_size)
+{
+	api_aead_cipher_hd_st *h = handle;
+	ssize_t ret;
+	uint8_t *p;
+	size_t len;
+	ssize_t blocksize = handle->ctx_enc.e->blocksize;
+	struct iov_iter_st iter;
+	uint8_t _tag[MAX_HASH_SIZE];
+
+	if (tag_size == 0)
+		tag_size = _gnutls_cipher_get_tag_size(h->ctx_enc.e);
+	else if (tag_size > (unsigned)_gnutls_cipher_get_tag_size(h->ctx_enc.e))
+		return gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+
+	/* Limitation: this function provides an optimization under the internally registered
+	 * AEAD ciphers. When an AEAD cipher is used registered with gnutls_crypto_register_aead_cipher(),
+	 * then this becomes a convenience function as it missed the lower-level primitives
+	 * necessary for piecemeal encryption. */
+	if ((handle->ctx_enc.e->flags & GNUTLS_CIPHER_FLAG_ONLY_AEAD) || handle->ctx_enc.encrypt == NULL) {
+		/* ciphertext cannot be produced in a piecemeal approach */
+		struct iov_store_st auth;
+		struct iov_store_st ctext;
+		size_t ctext_size;
+
+		ret = copy_from_iov(&auth, auth_iov, auth_iovcnt);
+		if (ret < 0)
+			return gnutls_assert_val(ret);
+
+		ret = copy_from_iov(&ctext, iov, iovcnt);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		ctext_size = ctext.size;
+
+		/* append tag */
+		ret = iov_store_grow(&ctext, tag_size);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+		memcpy((uint8_t *) ctext.data + ctext_size, tag, tag_size);
+
+		ret = gnutls_aead_cipher_decrypt(handle, nonce, nonce_len,
+						 auth.data, auth.size,
+						 tag_size,
+						 ctext.data, ctext.size,
+						 ctext.data, &ctext_size);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+		ret = copy_to_iov(&ctext, ctext_size, iov, iovcnt);
+		if (ret < 0) {
+			gnutls_assert();
+			goto fallback_fail;
+		}
+
+	fallback_fail:
+		iov_store_free(&auth);
+		iov_store_free(&ctext);
+
+		return ret;
+	}
+
+	ret = _gnutls_cipher_setiv(&handle->ctx_enc, nonce, nonce_len);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+
+	ret = _gnutls_iov_iter_init(&iter, auth_iov, auth_iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+		ret = _gnutls_cipher_auth(&handle->ctx_enc, p, ret);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+	}
+
+	ret = _gnutls_iov_iter_init(&iter, iov, iovcnt, blocksize);
+	if (unlikely(ret < 0))
+		return gnutls_assert_val(ret);
+	while (1) {
+		ret = _gnutls_iov_iter_next(&iter, &p);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+		if (ret == 0)
+			break;
+
+		len = ret;
+		ret = _gnutls_cipher_decrypt2(&handle->ctx_enc, p, len, p, len);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+
+		ret = _gnutls_iov_iter_sync(&iter, p, len);
+		if (unlikely(ret < 0))
+			return gnutls_assert_val(ret);
+	}
+
+	if (tag != NULL) {
+		_gnutls_cipher_tag(&handle->ctx_enc, _tag, tag_size);
+		if (gnutls_memcmp(_tag, tag, tag_size) != 0)
+			return gnutls_assert_val(GNUTLS_E_DECRYPTION_FAILED);
+	}
+
+	return 0;
+}
+
 /**
  * gnutls_aead_cipher_deinit:
  * @handle: is a #gnutls_aead_cipher_hd_t type.
@@ -788,8 +1398,101 @@ gnutls_aead_cipher_encrypt(gnutls_aead_cipher_hd_t handle,
  **/
 void gnutls_aead_cipher_deinit(gnutls_aead_cipher_hd_t handle)
 {
-	api_aead_cipher_hd_st *h = handle;
-
-	_gnutls_cipher_deinit(&h->ctx_enc);
+	_gnutls_aead_cipher_deinit(handle);
 	gnutls_free(handle);
+}
+
+extern gnutls_crypto_kdf_st _gnutls_kdf_ops;
+
+/**
+ * gnutls_hkdf_extract:
+ * @mac: the mac algorithm used internally
+ * @key: the initial keying material
+ * @salt: the optional salt
+ * @output: the output value of the extract operation
+ *
+ * This function will derive a fixed-size key using the HKDF-Extract
+ * function as defined in RFC 5869.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.13
+ */
+int
+gnutls_hkdf_extract(gnutls_mac_algorithm_t mac,
+		    const gnutls_datum_t *key,
+		    const gnutls_datum_t *salt,
+		    void *output)
+{
+	/* MD5 is only allowed internally for TLS */
+	if (is_mac_algo_forbidden(mac))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
+	return _gnutls_kdf_ops.hkdf_extract(mac, key->data, key->size,
+					    salt ? salt->data : NULL,
+					    salt ? salt->size : 0,
+					    output);
+}
+
+/**
+ * gnutls_hkdf_expand:
+ * @mac: the mac algorithm used internally
+ * @key: the pseudorandom key created with HKDF-Extract
+ * @info: the optional informational data
+ * @output: the output value of the expand operation
+ * @length: the desired length of the output key
+ *
+ * This function will derive a variable length keying material from
+ * the pseudorandom key using the HKDF-Expand function as defined in
+ * RFC 5869.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.13
+ */
+int
+gnutls_hkdf_expand(gnutls_mac_algorithm_t mac,
+		   const gnutls_datum_t *key,
+		   const gnutls_datum_t *info,
+		   void *output, size_t length)
+{
+	/* MD5 is only allowed internally for TLS */
+	if (is_mac_algo_forbidden(mac))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
+	return _gnutls_kdf_ops.hkdf_expand(mac, key->data, key->size,
+					   info->data, info->size,
+					   output, length);
+}
+
+/**
+ * gnutls_pbkdf2:
+ * @mac: the mac algorithm used internally
+ * @key: the initial keying material
+ * @salt: the salt
+ * @iter_count: the iteration count
+ * @output: the output value
+ * @length: the desired length of the output key
+ *
+ * This function will derive a variable length keying material from
+ * a password according to PKCS #5 PBKDF2.
+ *
+ * Returns: Zero or a negative error code on error.
+ *
+ * Since: 3.6.13
+ */
+int
+gnutls_pbkdf2(gnutls_mac_algorithm_t mac,
+	      const gnutls_datum_t *key,
+	      const gnutls_datum_t *salt,
+	      unsigned iter_count,
+	      void *output, size_t length)
+{
+	/* MD5 is only allowed internally for TLS */
+	if (is_mac_algo_forbidden(mac))
+		return gnutls_assert_val(GNUTLS_E_UNWANTED_ALGORITHM);
+
+	return _gnutls_kdf_ops.pbkdf2(mac, key->data, key->size,
+				      salt->data, salt->size, iter_count,
+				      output, length);
 }

@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-# Copyright (C) 2000-2012, 2016 Free Software Foundation, Inc.
+# Copyright (C) 2000-2012, 2016, 2019 Free Software Foundation, Inc.
 #
 # Author: Nikos Mavrogiannopoulos, Simon Josefsson
 #
@@ -20,10 +20,12 @@ dnl Process this file with autoconf to produce a configure script.
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
-AC_PREREQ(2.61)
-AC_INIT([GnuTLS], [3.6.0], [bugs@gnutls.org])
+AC_PREREQ(2.63)
+
+dnl when updating version also update LT_REVISION in m4/hooks.m4
+AC_INIT([GnuTLS], [3.6.13], [bugs@gnutls.org])
 AC_CONFIG_AUX_DIR([build-aux])
-AC_CONFIG_MACRO_DIR([m4])
+AC_CONFIG_MACRO_DIRS([m4 src/gl/m4 src/libopts/m4 lib/unistring/m4])
 AC_CANONICAL_HOST
 
 AM_INIT_AUTOMAKE([1.12.2 foreign subdir-objects no-dist-gzip dist-xz -Wall -Wno-override])
@@ -58,7 +60,13 @@ if test "$ac_cv_prog_cc_c99" = "no"; then
 fi
 
 AX_CODE_COVERAGE
+
 AM_MAINTAINER_MODE([enable])
+
+AC_ARG_ENABLE(bash-tests,
+  AS_HELP_STRING([--disable-bash-tests], [skip some tests that badly need bash]),
+    enable_bash_tests=$enableval, enable_bash_tests=yes)
+AM_CONDITIONAL(DISABLE_BASH_TESTS, test "$enable_bash_tests" != "yes")
 
 AC_ARG_ENABLE(doc,
   AS_HELP_STRING([--disable-doc], [don't generate any documentation]),
@@ -79,18 +87,6 @@ AC_ARG_ENABLE(tools,
   AS_HELP_STRING([--disable-tools], [don't compile any tools]),
     enable_tools=$enableval, enable_tools=yes)
 AM_CONDITIONAL(ENABLE_TOOLS, test "$enable_tools" != "no")
-
-if test "$enable_tools" != "no" || test "$enable_doc" != "no"; then
-  AC_CHECK_PROG([AUTOGEN], [autogen], [autogen], [:])
-
-  if test x"$AUTOGEN" = "x:"; then
-    AC_MSG_WARN([[
-***
-*** autogen not found. Will not link against libopts.
-*** ]])
-    included_libopts=yes
-  fi
-fi
 
 # For includes/gnutls/gnutls.h.in.
 AC_SUBST(MAJOR_VERSION, `echo $PACKAGE_VERSION | sed 's/\(.*\)\..*\..*/\1/g'`)
@@ -122,11 +118,23 @@ case "$host" in
   ;;
   *mingw32* | *mingw64*)
     have_win=yes
+    AC_DEFINE([_UNICODE], [1], [Defined to 1 for Unicode (wide chars) APIs])
+    LIB_CRYPT32="-lcrypt32"
+    AC_SUBST([LIB_CRYPT32])
   ;;
   *darwin*)
     have_macosx=yes
+    save_LDFLAGS="$LDFLAGS"
+    dnl Try to use -no_weak_imports if available. This makes sure we
+    dnl error out when linking to a function that doesn't exist in the
+    dnl intended minimum runtime version.
+    LDFLAGS="$LDFLAGS -Wl,-no_weak_imports"
+    AC_MSG_CHECKING([whether the linker supports -Wl,-no_weak_imports])
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <sys/select.h>], [fd_set rfds; FD_ZERO(&rfds); FD_SET(0, &rfds);])],
+      [AC_MSG_RESULT(yes)], [AC_MSG_RESULT(no); LDFLAGS="$save_LDFLAGS"])
   ;;
   *solaris*)
+    have_elf=yes
     use_accel=no
     AC_MSG_WARN([[
 ***
@@ -156,6 +164,12 @@ if test "$use_accel" != "no"; then
 case $host_cpu in
   armv8 | aarch64)
       hw_accel="aarch64"
+      case $host_os in
+        *_ilp32)
+	  dnl ILP32 not supported in assembler yet
+	  hw_accel="none"
+        ;;
+      esac
   ;;
   i?86 | x86_64 | amd64)
       AC_CHECK_HEADERS(cpuid.h)
@@ -170,10 +184,27 @@ case $host_cpu in
   ;;
 esac
 
+# check for gcc's __get_cpuid_count functionality
+AC_MSG_CHECKING([for __get_cpuid_count])
+AC_LINK_IFELSE(
+   [AC_LANG_SOURCE([
+    #include <cpuid.h>
+    int main(void) { unsigned t1; return __get_cpuid_count(7, 0, &t1, &t1, &t1, &t1); }
+   ])],
+   [AC_DEFINE([HAVE_GET_CPUID_COUNT], [1], [use __get_cpuid_count]) AC_MSG_RESULT([yes])],
+   [AC_MSG_RESULT([no])]
+)
+
 fi
 
+AC_ARG_ENABLE(tls13-interop,
+  AS_HELP_STRING([--disable-tls13-interop], [disable TLS1.3 interoperability testing with openssl]),
+    enable_tls13_interop=$enableval, enable_tls13_interop=yes)
+
+AM_CONDITIONAL(ENABLE_TLS13_INTEROP, test "$enable_tls13_interop" != "no")
+
 dnl Check for iovec type
-AC_CHECK_MEMBERS([struct iovec.iov_basea],
+AC_CHECK_MEMBERS([struct iovec.iov_base],
       [
         AC_SUBST([DEFINE_IOVEC_T], ["#include <sys/uio.h>
 typedef struct iovec giovec_t;"])
@@ -192,8 +223,19 @@ dnl Need netinet/tcp.h for TCP_FASTOPEN
 AC_CHECK_HEADERS([netinet/tcp.h])
 AC_CHECK_HEADERS([stdatomic.h])
 
+dnl This ensures that we link with the right library for atomic operations on Linux SPARC
+save_LIBS=$LIBS
+AC_SEARCH_LIBS([__atomic_load_4], [atomic], [], [AC_MSG_NOTICE([Could not detect libatomic])])
+LIBS=$save_LIBS
+
+AS_IF([test "$ac_cv_search___atomic_load_4" = "none required" || test "$ac_cv_search___atomic_load_4" = "no"],
+      [AC_SUBST([LIBATOMIC_LIBS], [])],
+      [AC_SUBST([LIBATOMIC_LIBS], [$ac_cv_search___atomic_load_4])])
+
 dnl We use its presence to detect C11 threads
 AC_CHECK_HEADERS([threads.h])
+
+AC_CHECK_HEADERS([valgrind/memcheck.h])
 
 AC_ARG_ENABLE(padlock,
   AS_HELP_STRING([--disable-padlock], [unconditionally disable padlock acceleration]),
@@ -215,17 +257,37 @@ dnl check for getrandom()
 rnd_variant="auto-detect"
 AC_MSG_CHECKING([for getrandom])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([
-	   #include <linux/random.h>],[
+	   #include <sys/random.h>],[
 		   getrandom(0, 0, 0);
 		  ])],
 		  [AC_MSG_RESULT(yes)
-		   AC_DEFINE([HAVE_LINUX_GETRANDOM], 1, [Enable the Linux getrandom function])
+		   AC_DEFINE([HAVE_GETRANDOM], 1, [Enable the Linux getrandom function])
 		   rnd_variant=getrandom],
 		  [AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for KERN_ARND])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([
+	   #include <sys/sysctl.h>
+           #ifdef __linux__
+           #error 1
+           #endif
+           static int name[] = {CTL_KERN, KERN_ARND};
+	   ],[
+		   sysctl(0, 0, 0, 0, 0, 0);
+		  ])],
+		  [AC_MSG_RESULT(yes)
+		   AC_DEFINE([HAVE_KERN_ARND], 1, [Enable the BSD sysctl(KERN_ARND) function])
+		   rnd_variant=kern_arnd],
+		  [AC_MSG_RESULT(no)])
+
+AM_CONDITIONAL(HAVE_KERN_ARND, test "$rnd_variant" = "kern_arnd")
 
 AC_MSG_CHECKING([for getentropy])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([
 	   #include <unistd.h>
+           #ifdef __APPLE__
+           #include <sys/random.h>
+           #endif
            #ifdef __linux__
            #error 1
            #endif
@@ -248,7 +310,26 @@ AC_ARG_ENABLE(tests,
     enable_tests=$enableval, enable_tests=$enable_tools)
 AM_CONDITIONAL(ENABLE_TESTS, test "$enable_tests" != "no")
 
-GTK_DOC_CHECK(1.1)
+AC_ARG_ENABLE(fuzzer-target,
+  AS_HELP_STRING([--enable-fuzzer-target], [make a library intended for testing - not production]),
+    enable_fuzzer_target=$enableval, enable_fuzzer_target=no)
+if test "$enable_fuzzer_target" != "no";then
+	AC_DEFINE([FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION], 1, [Enable fuzzer target -not for production])
+fi
+
+dnl
+dnl check for gtk-doc
+dnl
+m4_ifdef([GTK_DOC_CHECK], [
+GTK_DOC_CHECK([1.14],[--flavour no-tmpl])
+],[
+AM_CONDITIONAL([ENABLE_GTK_DOC], false)
+])
+# needed for some older versions of gtk-doc
+m4_ifdef([GTK_DOC_USE_LIBTOOL], [], [
+AM_CONDITIONAL([GTK_DOC_USE_LIBTOOL], false)
+])
+
 AM_GNU_GETTEXT([external])
 AM_GNU_GETTEXT_VERSION([0.19])
 
@@ -256,33 +337,28 @@ AC_C_BIGENDIAN
 
 dnl No fork on MinGW, disable some self-tests until we fix them.
 dnl Check clock_gettime and pthread_mutex_lock in libc (avoid linking to other libs)
-AC_CHECK_FUNCS([fork setitimer inet_ntop inet_pton getrusage getpwuid_r nanosleep daemon getpid clock_gettime localtime fmemopen vasprintf mmap],,)
-if test "$ac_cv_func_vasprintf" != "yes";then
-  AC_MSG_CHECKING([for va_copy])
-  AC_LINK_IFELSE([AC_LANG_PROGRAM([
-	#include <stdarg.h>
-	va_list a;],[
-	va_list b;
-	va_copy(b,a);
-	va_end(b);])],
-	[AC_DEFINE([HAVE_VA_COPY], 1, [Have va_copy()])
-	AC_MSG_RESULT(va_copy)],
-	[AC_LINK_IFELSE([AC_LANG_PROGRAM([
-		#include <stdarg.h>
-		va_list a;],[
-		va_list b;
-		__va_copy(b,a);
-		va_end(b);])],
-		[AC_DEFINE([HAVE___VA_COPY], 1, [Have __va_copy()])
-		AC_MSG_RESULT(__va_copy)],
-		[AC_MSG_RESULT(no)
-		AC_MSG_ERROR([Your system lacks vasprintf() and va_copy()])])
-	])
-fi
+AC_CHECK_FUNCS([fork setitimer getrusage getpwuid_r nanosleep daemon getpid localtime mmap explicit_bzero],,)
+dnl Manually check some functions by including headers first. On macOS, you
+dnl normally only have the latest SDK available, containing all existing
+dnl functions, but having them restricted according to target version in
+dnl headers. If we bypass the headers and just try linking (as AC_CHECK_FUNCS
+dnl does), we will accidentally detect functions which we shouldn't use. Set
+dnl ac_cv_func_* as well, to avoid later AC_CHECK_FUNCS from other included
+dnl scripts from overriding it.
+AC_MSG_CHECKING([for clock_gettime])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <time.h>], [clock_gettime(0, 0);])],
+  [AC_MSG_RESULT(yes); ac_cv_func_clock_gettime=yes
+  AC_DEFINE([HAVE_CLOCK_GETTIME], 1, [Define to 1 if you have the `clock_gettime' function.])],
+  [AC_MSG_RESULT(no); ac_cv_func_clock_gettime=no])
+AC_MSG_CHECKING([for fmemopen])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <stdio.h>], [fmemopen(0, 0, 0);])],
+  [AC_MSG_RESULT(yes); ac_cv_func_fmemopen=yes
+  AC_DEFINE([HAVE_FMEMOPEN], 1, [Define to 1 if you have the `fmemopen' function.])],
+  [AC_MSG_RESULT(no); ac_cv_func_fmemopen=no])
 
 AM_CONDITIONAL(HAVE_FORK, test "$ac_cv_func_fork" != "no")
 
-AC_CHECK_FUNCS([__register_atfork secure_getenv],,)
+AC_CHECK_FUNCS([__register_atfork secure_getenv getauxval],,)
 
 AC_ARG_ENABLE(seccomp-tests,
   AS_HELP_STRING([--enable-seccomp-tests], [unconditionally enable tests with seccomp]),
@@ -316,10 +392,6 @@ if test "$ac_cv_func_nanosleep" != "yes";then
   gnutls_needs_librt=yes
 fi
 
-if test "$ac_cv_func_inet_pton" != "yes";then
-  AC_LIB_HAVE_LINKFLAGS(nsl,, [#include <arpa/inet.h>], [inet_pton(0,0,0);])
-fi
-
 if test "$ac_cv_func_clock_gettime" != "yes";then
   AC_LIB_HAVE_LINKFLAGS(rt,, [#include <time.h>], [clock_gettime (0, 0);])
   gnutls_needs_librt=yes
@@ -333,17 +405,19 @@ AC_ARG_WITH(included-unistring, AS_HELP_STRING([--with-included-unistring],
 if test "$included_unistring" = yes;then
   ac_have_unistring=no
 else
-  AC_LIB_HAVE_LINKFLAGS(unistring,, [#include <uninorm.h>], [u8_normalize(0, 0, 0, 0, 0);])
-
-  if test "$HAVE_LIBUNISTRING" = "yes";then
+  save_LIBS=$LIBS
+  AC_SEARCH_LIBS(u8_normalize, unistring, [
     included_unistring=no
     ac_have_unistring=yes
-  else
-      AC_MSG_ERROR([[
+    AC_SUBST([LIBUNISTRING], [$ac_cv_search_u8_normalize])
+  ], [
+    ac_cv_libunistring=no
+    AC_MSG_ERROR([[
   ***
   *** Libunistring was not found. To use the included one, use --with-included-unistring
-  ]])
-  fi
+    ]])
+  ])
+  LIBS=$save_LIBS
 fi
 
 AM_CONDITIONAL(HAVE_LIBUNISTRING, test "$ac_have_unistring" = "yes")
@@ -351,7 +425,7 @@ AM_CONDITIONAL(HAVE_LIBUNISTRING, test "$ac_have_unistring" = "yes")
 dnl Note that g*l_INIT are run after we check for library capabilities,
 dnl to prevent issues from caching lib dependencies. See discussion
 dnl in https://bugs.gentoo.org/show_bug.cgi?id=494940 and
-dnl http://gnu-autoconf.7623.n7.nabble.com/Correct-way-to-check-for-clock-gettime-td12276.html
+dnl https://gnu-autoconf.7623.n7.nabble.com/Correct-way-to-check-for-clock-gettime-td12276.html
 gl_INIT
 ggl_INIT
 unistring_INIT
@@ -363,12 +437,32 @@ AC_ARG_ENABLE(full-test-suite,
 
 # test if we are in git master or in release build. In release
 # builds we do not use valgrind.
-SUITE_FILE="${srcdir}/tests/suite/mini-eagain2.c"
+SUITE_FILE="${srcdir}/tests/suite/prime-check.c"
 if test "$full_test_suite" = yes && test ! -f "$SUITE_FILE";then
 	full_test_suite=no
 fi
 
 AM_CONDITIONAL(WANT_TEST_SUITE, test "$full_test_suite" = "yes")
+
+AC_ARG_ENABLE(oldgnutls-interop,
+  AS_HELP_STRING([--enable-oldgnutls-interop], [enable interoperability testing with old gnutls version]),
+    enable_oldgnutls_interop=$enableval, enable_oldgnutls_interop=no)
+
+if test "$enable_oldgnutls_interop" != "no" && test "$full_test_suite" != yes;then
+	AC_MSG_ERROR([cannot --enable-oldgnutls-interop without --enable-full-test-suite])
+fi
+
+AM_CONDITIONAL(ENABLE_OLDGNUTLS_INTEROP, test "$enable_oldgnutls_interop" != "no")
+
+# check for libev - used in full test suite
+AC_LIB_HAVE_LINKFLAGS(ev,, [#include <ev.h>], [ev_run(0,0);])
+if test "$ac_cv_libev" = yes; then
+        AC_SUBST([LIBEV_LIBS], [$LIBEV])
+elif test "$full_test_suite" = yes;then
+        AC_MSG_ERROR([[***
+*** libev4 was not found.
+***]])
+fi
 
 dnl GCC warnings to enable
 
@@ -415,6 +509,9 @@ if test "$gl_gcc_warnings" = yes; then
   done
   gl_WARN_ADD([-Wno-missing-field-initializers]) # We need this one
   gl_WARN_ADD([-Wno-unused-parameter]) # Too many warnings for now
+  gl_WARN_ADD([-Wno-format-truncation]) # Many warnings with no point
+  gl_WARN_ADD([-Wimplicit-fallthrough=2])
+  gl_WARN_ADD([-Wabi=11])
   gl_WARN_ADD([-fdiagnostics-show-option])
 fi
 
@@ -454,15 +551,8 @@ if [ test "$enable_fips" = "yes" ];then
   fi
 fi
 
-PKG_CHECK_MODULES(CMOCKA, cmocka, [with_cmocka=yes], [with_cmocka=no])
+PKG_CHECK_MODULES(CMOCKA, [cmocka >= 1.0.1], [with_cmocka=yes], [with_cmocka=no])
 AM_CONDITIONAL(HAVE_CMOCKA, test "$with_cmocka" != "no")
-
-with_old_nettle=no
-if ! $PKG_CONFIG --atleast-version=3.3 nettle; then
-	with_old_nettle=yes
-fi
-AM_CONDITIONAL(WITH_OLD_NETTLE, test "$with_old_nettle" != "no")
-
 
 AC_ARG_WITH(idn, AS_HELP_STRING([--without-idn],
                                 [disable support for IDNA]),
@@ -473,24 +563,18 @@ idna_support=no
 with_libidn2=no
 
 if test "$try_libidn2" = yes;then
-  AC_SEARCH_LIBS(idn2_lookup_u8, idn2, [
-      with_libidn2=yes;
+    PKG_CHECK_MODULES(LIBIDN2, [libidn2 >= 2.0.0], [with_libidn2=yes], [with_libidn2=no])
+    if test "${with_libidn2}" = "yes";then
       idna_support="IDNA 2008 (libidn2)"
       AC_DEFINE([HAVE_LIBIDN2], 1, [Define if IDNA 2008 support is enabled.])
-      AC_SUBST([LIBIDN2_CFLAGS], [])
-      AC_SUBST([LIBIDN2_LIBS], [-lidn2]) dnl used in gnutls.pc.in
-dnl enable once libidn2.pc is widespread; and remove LIBIDN2_LIBS from gnutls.pc.in (Libs.private)
-dnl      if test "x$GNUTLS_REQUIRES_PRIVATE" = "x"; then
-dnl        GNUTLS_REQUIRES_PRIVATE="Requires.private: libidn2"
-dnl      else
-dnl        GNUTLS_REQUIRES_PRIVATE="${GNUTLS_REQUIRES_PRIVATE}, libidn2"
-dnl      fi
-    ],[
-      with_libidn2=no;
+      if test "x$GNUTLS_REQUIRES_PRIVATE" = "x"; then
+        GNUTLS_REQUIRES_PRIVATE="Requires.private: libidn2"
+      else
+        GNUTLS_REQUIRES_PRIVATE="${GNUTLS_REQUIRES_PRIVATE}, libidn2"
+      fi
+    else
       AC_MSG_WARN(*** LIBIDN2 was not found. You will not be able to use IDN2008 support)
-    ])
-else
-    with_libidn2=no
+    fi
 fi
 
 AM_CONDITIONAL(HAVE_LIBIDN2, test "$with_libidn2" != "no")
@@ -501,13 +585,142 @@ AC_ARG_ENABLE(non-suiteb-curves,
 
 if test "$enable_non_suiteb" = "yes";then
 	dnl nettle_secp_192r1 is not really a function
-	AC_CHECK_LIB(hogweed, nettle_secp_192r1, enable_non_suiteb=yes, enable_non_suiteb=no, [$HOGWEED_LIBS])
+	AC_CHECK_LIB(hogweed, nettle_get_secp_192r1, enable_non_suiteb=yes, enable_non_suiteb=no, [$HOGWEED_LIBS $NETTLE_LIBS])
 
 	if test "$enable_non_suiteb" = "yes";then
 		AC_DEFINE([ENABLE_NON_SUITEB_CURVES], 1, [Enable all curves])
 	fi
 fi
 AM_CONDITIONAL(ENABLE_NON_SUITEB_CURVES, test "$enable_non_suiteb" = "yes")
+
+# We MUST require a Nettle version that has rsa_sec_decrypt now.
+save_LIBS=$LIBS
+LIBS="$LIBS $HOGWEED_LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_rsa_sec_decrypt,
+    [],
+    [AC_MSG_ERROR([Nettle lacks the required rsa_sec_decrypt function])]
+)
+LIBS=$save_LIBS
+
+# Check if nettle has CFB8 support
+if test -z "$ac_cv_func_nettle_cfb8_encrypt"; then
+	# nettle_cfb8_decrypt in nettle upto 3.6 is known to be broken
+	if ! $PKG_CONFIG --atleast-version=3.6 nettle; then
+		ac_cv_func_nettle_cfb8_encrypt=no
+	fi
+fi
+
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_cfb8_encrypt)
+LIBS=$save_LIBS
+AM_CONDITIONAL(NEED_CFB, [test "$ac_cv_func_nettle_cfb8_encrypt" != "yes"])
+
+# Check if nettle has CMAC support
+save_CFLAGS=$CFLAGS
+CFLAGS="$CFLAGS $NETTLE_CFLAGS"
+AC_CHECK_TYPES([union nettle_block8], , , [[#include <nettle/nettle-types.h>]])
+CFLAGS=$save_CFLAGS
+
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_cmac128_update)
+LIBS=$save_LIBS
+AM_CONDITIONAL(NEED_CMAC, [test "$ac_cv_func_nettle_cmac128_update" != "yes"])
+
+# Check if nettle has XTS support
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_xts_encrypt_message)
+LIBS=$save_LIBS
+AM_CONDITIONAL(NEED_XTS, [test "$ac_cv_func_nettle_xts_encrypt_message" != "yes"])
+
+# Check for Gosthash94 with CryptoPro S-box support
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_gosthash94cp_update)
+LIBS=$save_LIBS
+
+# Check for GOST28147
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_gost28147_set_key)
+LIBS=$save_LIBS
+
+# Check for Streebog support
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_streebog512_update)
+LIBS=$save_LIBS
+
+# Check for Curve448 and Ed448
+have_new_ecc=yes
+save_LIBS=$LIBS
+LIBS="$LIBS $HOGWEED_LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS([nettle_curve448_mul nettle_ed448_shake256_sign nettle_get_gost_gc256b nettle_get_gost_gc512a nettle_gostdsa_sign],
+	       [], [have_new_ecc=no])
+LIBS=$save_LIBS
+AS_IF([test "$have_new_ecc" != "yes"], AC_DEFINE([NEED_INT_ECC], 1, [Use backported Curve448/GOST R 34.10 DSA support]))
+AM_CONDITIONAL(NEED_INT_ECC, test "$have_new_ecc" != "yes")
+
+# Check if nettle has ChaCha20 initial block counter support
+have_chacha_set_counter=no
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS([nettle_chacha_set_counter],
+               [have_chacha_set_counter=yes])
+LIBS=$save_LIBS
+AM_CONDITIONAL(NEED_CHACHA, [test "$have_chacha_set_counter" != "yes"])
+
+# Check for SIV-CMAC
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_CHECK_FUNCS(nettle_siv_cmac_aes128_set_key)
+LIBS=$save_LIBS
+AM_CONDITIONAL(NEED_SIV, [test "$ac_cv_func_nettle_siv_cmac_aes128_set_key" != "yes"])
+
+# Check sonames of the linked libraries needed for FIPS selftests.
+save_LIBS=$LIBS
+LIBS="$LIBS $GMP_LIBS"
+AC_MSG_CHECKING([gmp soname])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([], [])],
+	[gmp_so=`(eval "$LDDPROG conftest$EXEEXT $LDDPOSTPROC") | grep '^libgmp\.so'`],
+	[gmp_so=none])
+if test -z "$gmp_so"; then
+	gmp_so=none
+fi
+AC_MSG_RESULT($gmp_so)
+AC_DEFINE_UNQUOTED([GMP_LIBRARY_SONAME], ["$gmp_so"], [The soname of gmp library])
+LIBS=$save_LIBS
+
+save_LIBS=$LIBS
+LIBS="$LIBS $NETTLE_LIBS"
+AC_MSG_CHECKING([nettle soname])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([], [])],
+	[nettle_so=`(eval "$LDDPROG conftest$EXEEXT $LDDPOSTPROC") | grep '^libnettle\.so'`],
+	[nettle_so=none])
+if test -z "$nettle_so"; then
+	nettle_so=none
+fi
+AC_MSG_RESULT($nettle_so)
+AC_DEFINE_UNQUOTED([NETTLE_LIBRARY_SONAME], ["$nettle_so"], [The soname of nettle library])
+LIBS=$save_LIBS
+
+save_LIBS=$LIBS
+LIBS="$LIBS $HOGWEED_LIBS"
+AC_MSG_CHECKING([hogweed soname])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([], [])],
+	[hogweed_so=`(eval "$LDDPROG conftest$EXEEXT $LDDPOSTPROC") | grep '^libhogweed\.so'`],
+	[hogweed_so=none])
+if test -z "$hogweed_so"; then
+	hogweed_so=none
+fi
+AC_MSG_RESULT($hogweed_so)
+AC_DEFINE_UNQUOTED([HOGWEED_LIBRARY_SONAME], ["$hogweed_so"], [The soname of hogweed library])
+LIBS=$save_LIBS
+
+gnutls_so=libgnutls.so.`expr "$LT_CURRENT" - "$LT_AGE"`
+AC_DEFINE_UNQUOTED([GNUTLS_LIBRARY_SONAME], ["$gnutls_so"], [The soname of gnutls library])
 
 AC_MSG_CHECKING([whether to build libdane])
 AC_ARG_ENABLE(libdane,
@@ -560,17 +773,23 @@ fi
 AC_DEFINE_UNQUOTED([UNBOUND_ROOT_KEY_FILE],
   ["$unbound_root_key_file"], [The DNSSEC root key file])
 
+system_config_file="/etc/gnutls/config"
 AC_ARG_WITH(system-priority-file, AS_HELP_STRING([--with-system-priority-file],
-                                 [specify the system priority file]),
-            system_priority_file="$withval", 
-system_priority_file="/etc/gnutls/default-priorities"
+                                 [specify the system-wide config file (set empty to disable)]),
+            system_config_file="$withval"
 )
 
+AM_CONDITIONAL(DISABLE_SYSTEM_CONFIG, test -z "${system_config_file}")
+
+if test -z "${system_config_file}";then
+	AC_DEFINE([DISABLE_SYSTEM_CONFIG], 1, [Whether to disable system configuration])
+fi
+
 AC_DEFINE_UNQUOTED([SYSTEM_PRIORITY_FILE],
-  ["$system_priority_file"], [The system priority file])
+  ["$system_config_file"], [The system-wide gnutls configuration file])
 
 AC_ARG_WITH(default-priority-string, AS_HELP_STRING([--with-default-priority-string],
-                                 [specify the default priority string (e.g. @SYSTEM)]),
+                                 [specify the default priority string used by gnutls_set_default_priority (default is NORMAL)]),
             prio_string="$withval", 
             prio_string="NORMAL")
 
@@ -596,10 +815,12 @@ if test "$with_p11_kit" != "no"; then
 *** 
 *** p11-kit >= $P11_KIT_MINIMUM was not found. To disable PKCS #11 support 
 *** use --without-p11-kit, otherwise you may get p11-kit from
-*** http://p11-glue.freedesktop.org/p11-kit.html
+*** https://p11-glue.freedesktop.org/p11-kit.html
 *** ]])
 	fi
 fi
+
+AM_CONDITIONAL(P11KIT_0_23_11_API, $PKG_CONFIG --atleast-version=0.23.11 p11-kit-1)
 
 AM_CONDITIONAL(ENABLE_PKCS11, test "$with_p11_kit" != "no")
 
@@ -653,73 +874,41 @@ fi
 AC_DEFINE_UNQUOTED([TROUSERS_LIB], ["$ac_trousers_lib"], [the location of the trousers library])
 AC_SUBST(TROUSERS_LIB)
 
+AM_MISSING_PROG([AUTOGEN], [autogen])
+
 included_libopts=no
-create_libopts_links=no
 if test "$enable_tools" != "no" || test "$enable_doc" != "no"; then
+	AC_CHECK_PROGS([autogen], [autogen])
+
+	if test -z "$autogen"; then
+		AC_MSG_WARN([[
+***
+*** autogen not found. Will not link against system libopts.
+*** ]])
+		dnl simulate specifying option on the command line
+		included_libopts=yes
+	fi
 	LIBOPTS_CHECK([src/libopts])
 	if test "$NEED_LIBOPTS_DIR" = "true";then
 		dnl replace libopts-generated files with distributed backups, if present
-		create_libopts_links=yes
-		AC_SUBST([AUTOGEN], [/bin/true])
 		included_libopts=yes
 	fi
 else
 	# Need to ensure the relevant conditionals get set
 	gl_STDNORETURN_H
 	AM_CONDITIONAL([INSTALL_LIBOPTS],[false])
-	AM_CONDITIONAL([NEED_LIBOPTS], [false])
-	included_libopts=yes
 fi
 
 AM_CONDITIONAL(NEED_LIBOPTS, test "$included_libopts" = "yes")
 
-AC_CHECK_TYPE(ssize_t,
-  [
-    DEFINE_SSIZE_T="#include <sys/types.h>"
-    AC_SUBST(DEFINE_SSIZE_T)
-  ], [
-    AC_DEFINE([NO_SSIZE_T], 1, [no ssize_t type was found])
-    DEFINE_SSIZE_T="typedef int ssize_t;"
-    AC_SUBST(DEFINE_SSIZE_T)
-  ], [
-    #include <sys/types.h>
-  ])
-
 # For minitasn1.
 AC_CHECK_SIZEOF(unsigned long int, 4)
 AC_CHECK_SIZEOF(unsigned int, 4)
+AC_CHECK_SIZEOF(time_t, 4)
 
-AC_ARG_WITH(zlib, AS_HELP_STRING([--without-zlib],
-                                 [disable zlib compression support]),
-            ac_zlib=$withval, ac_zlib=yes)
-AC_MSG_CHECKING([whether to include zlib compression support])
-if test x$ac_zlib != xno; then
- AC_MSG_RESULT(yes)
- AC_LIB_HAVE_LINKFLAGS(z,, [#include <zlib.h>], [compress (0, 0, 0, 0);])
- if test x$ac_cv_libz != xyes; then
-   AC_MSG_WARN(
-*** 
-*** ZLIB was not found. You will not be able to use ZLIB compression.)
- fi
-else
- AC_MSG_RESULT(no)
-fi
+# export for use in scripts
+AC_SUBST(ac_cv_sizeof_time_t)
 
-PKG_CHECK_EXISTS(zlib, ZLIB_HAS_PKGCONFIG=y, ZLIB_HAS_PKGCONFIG=n)
-
-if test x$ac_zlib != xno; then
-  if test "$ZLIB_HAS_PKGCONFIG" = "y" ; then
-    if test "x$GNUTLS_REQUIRES_PRIVATE" = x; then
-      GNUTLS_REQUIRES_PRIVATE="Requires.private: zlib"
-    else
-      GNUTLS_REQUIRES_PRIVATE="$GNUTLS_REQUIRES_PRIVATE, zlib"
-    fi
-    LIBZ_PC=""
-  else
-    LIBZ_PC=$LIBZ
-  fi
-fi
-AC_SUBST(LIBZ_PC)
 AC_SUBST(GNUTLS_REQUIRES_PRIVATE)
 
 
@@ -735,6 +924,8 @@ if test "x$with_default_trust_store_pkcs11" != x; then
     ["$with_default_trust_store_pkcs11"], [use the given pkcs11 uri as default trust store])
 fi
 
+AM_CONDITIONAL([HAVE_PKCS11_TRUST_STORE], [test -n "${with_default_trust_store_pkcs11}"])
+
 AC_ARG_WITH([default-trust-store-dir],
   [AS_HELP_STRING([--with-default-trust-store-dir=DIR],
     [use the given directory as default trust store])])
@@ -744,7 +935,7 @@ if test "x$with_default_trust_store_dir" != x; then
     ["$with_default_trust_store_dir"], [use the given directory as default trust store])
 fi
 
-dnl auto detect http://lists.gnu.org/archive/html/help-gnutls/2012-05/msg00004.html
+dnl auto detect https://lists.gnu.org/archive/html/help-gnutls/2012-05/msg00004.html
 AC_ARG_WITH([default-trust-store-file],
   [AS_HELP_STRING([--with-default-trust-store-file=FILE],
     [use the given file default trust store])], with_default_trust_store_file="$withval",
@@ -792,16 +983,25 @@ if test "x$with_default_blacklist_file" != x; then
 fi
 
 dnl Guile bindings.
-opt_guile_bindings=yes
 AC_MSG_CHECKING([whether building Guile bindings])
 AC_ARG_ENABLE(guile,
 	AS_HELP_STRING([--enable-guile], [build GNU Guile bindings]),
-opt_guile_bindings=$enableval)
+		[opt_guile_bindings=$enableval], [opt_guile_bindings=yes])
 AC_MSG_RESULT($opt_guile_bindings)
 
-AC_ARG_WITH([guile-site-dir],
-  [AS_HELP_STRING([--with-guile-site-dir],
-     [use the given directory as the Guile site (use with care)])])
+AC_ARG_WITH([guile-site-dir], AS_HELP_STRING([--with-guile-site-dir=DIR],
+    [guile site directory for gnutls, default is guile system settings]),
+    [guilesitedir="${withval}"], [guilesitedir='$(GUILE_SITE)'])
+AC_ARG_WITH([guile-site-ccache-dir], AS_HELP_STRING([--with-guile-site-ccache-dir=DIR],
+    [guile ccache directory for gnutls, default is guile system settings]),
+    [guilesiteccachedir="${withval}"], [guilesiteccachedir='$(GUILE_SITE_CCACHE)'])
+AC_ARG_WITH([guile-extension-dir], AS_HELP_STRING([--with-guile-extension-dir=DIR],
+    [guile extension directory for gnutls, default is guile system settings]),
+    [guileextensiondir="${withval}"], [guileextensiondir='$(GUILE_EXTENSION)'])
+AC_SUBST([guilesitedir])
+AC_SUBST([guilesiteccachedir])
+AC_SUBST([guileextensiondir])
+maybe_guileextensiondir="\"$guileextensiondir\""
 
 if test "$opt_guile_bindings" = "yes"; then
    AC_MSG_RESULT([***
@@ -818,8 +1018,32 @@ if test "$opt_guile_bindings" = "yes"; then
       AC_PATH_PROG([GUILD], [guild])
       AC_SUBST([GUILD])
 
+      GUILE_PKG([3.0 2.2 2.0 1.8])
       GUILE_PROGS
+      GUILE_SITE_DIR
       GUILE_FLAGS
+
+      # Backward compatibility with <guile-2.2 m4 macro that is used
+      # due to autreconf of several CI machine.
+      # We need to guess the locations of ccache and extension
+      if test -z "${GUILE_SITE_CCACHE}"; then
+          AC_MSG_NOTICE([Found <guile-2.2 m4, macro emulating])
+
+          AC_MSG_CHECKING([for GUILE_SITE_CCACHE via pkg-config])
+          GUILE_SITE_CCACHE=`$PKG_CONFIG --variable=siteccachedir guile-$GUILE_EFFECTIVE_VERSION`
+          AC_MSG_RESULT([${GUILE_SITE_CCACHE}])
+          if test -z "${GUILE_SITE_CCACHE}"; then
+                  AC_MSG_CHECKING([for GUILE_SITE_CCACHE via guile])
+                  GUILE_SITE_CCACHE=`$GUILE -c "(display (if (defined? '%site-ccache-dir) (%site-ccache-dir) \"\"))"`
+                  AC_MSG_RESULT([${GUILE_SITE_CCACHE}])
+          fi
+          AC_SUBST([GUILE_SITE_CCACHE])
+
+          AC_MSG_CHECKING([for GUILE_EXTENSION])
+          GUILE_EXTENSION=`$PKG_CONFIG --print-errors --variable=extensiondir guile-$GUILE_EFFECTIVE_VERSION`
+          AC_MSG_RESULT([${GUILE_EXTENSION}])
+          AC_SUBST([GUILE_EXTENSION])
+      fi
 
       save_CFLAGS="$CFLAGS"
       save_LIBS="$LIBS"
@@ -831,30 +1055,8 @@ if test "$opt_guile_bindings" = "yes"; then
       CFLAGS="$save_CFLAGS"
       LIBS="$save_LIBS"
 
-      AC_MSG_CHECKING([the Guile effective version])
-      guile_effective_version="`$GUILE -c '(display (effective-version))'`"
-      AC_MSG_RESULT([$guile_effective_version])
-
       if test "$opt_guile_bindings" = "yes"; then
         AC_MSG_RESULT([yes])
-	case "x$with_guile_site_dir" in 
-	     xno)
-		# Use the default $(GUILE_SITE).
-		GUILE_SITE_DIR
-		;;
-	     x|xyes)
-		# Automatically derive $(GUILE_SITE) from $(pkgdatadir).  This
-		# hack is used to allow `distcheck' to work (see
-		# `DISTCHECK_CONFIGURE_FLAGS' in the top-level `Makefile.am').
-		GUILE_SITE="\$(datadir)/guile/site/$guile_effective_version"
-		AC_SUBST(GUILE_SITE)
-		;;
-	     *)
-		# Use the user-specified directory as $(GUILE_SITE).
-		GUILE_SITE="$with_guile_site_dir"
-		AC_SUBST(GUILE_SITE)
-		;;
-	esac
         AC_MSG_CHECKING([whether gcc supports -fgnu89-inline])
         _gcc_cflags_save="$CFLAGS"
         CFLAGS="${CFLAGS} -fgnu89-inline"
@@ -872,13 +1074,13 @@ if test "$opt_guile_bindings" = "yes"; then
 	CFLAGS="$save_CFLAGS"
 	LIBS="$save_LIBS"
 
-	# The place where guile-gnutls.la will go.
-	guileextensiondir="$libdir/guile/$guile_effective_version"
-	AC_SUBST([guileextensiondir])
-
-	# The location of .go files.
-	guileobjectdir="$libdir/guile/$guile_effective_version/site-ccache"
-	AC_SUBST([guileobjectdir])
+	# Do we need to hard-code $guileextensiondir in gnutls.scm?
+	# This is not necessary when $guileextensiondir is equal to
+	# Guile's 'extensiondir' as specified in 'guile-MAJOR.MINOR.pc'.
+	if test "$guileextensiondir" = "`$PKG_CONFIG guile-$GUILE_EFFECTIVE_VERSION --variable extensiondir`" \
+	     || test "$guileextensiondir" = '$(GUILE_EXTENSION)'; then
+	  maybe_guileextensiondir='#f'
+	fi
       else
         AC_MSG_RESULT([no])
         AC_MSG_WARN([A sufficiently recent GNU Guile not found.  Guile bindings not built.])
@@ -887,8 +1089,10 @@ if test "$opt_guile_bindings" = "yes"; then
    fi
 fi
 
+AC_SUBST([maybe_guileextensiondir])
 AM_CONDITIONAL([HAVE_GUILE], [test "$opt_guile_bindings" = "yes"])
 AM_CONDITIONAL([HAVE_GUILD], [test "x$GUILD" != "x"])
+AM_CONDITIONAL([CROSS_COMPILING], [test "x$cross_compiling" = "xyes"])
 
 LIBGNUTLS_LIBS="-L${libdir} -lgnutls $LIBS"
 LIBGNUTLS_CFLAGS="-I${includedir}"
@@ -904,28 +1108,20 @@ AC_DEFINE([fread_file], [_gnutls_fread_file], [static lib rename])
 AC_DEFINE([read_file], [_gnutls_read_file], [static lib rename])
 AC_DEFINE([read_binary_file], [_gnutls_read_binary_file], [static lib rename])
 
-dnl Some variables needed in makefiles
-YEAR=`date +%Y`
-AC_SUBST([YEAR], $YEAR)
-
-for i in ${srcdir}/src/*-args.c.bak ${srcdir}/src/*-args.h.bak; do
-	nam=$(basename $i|sed 's/.bak//g')
-	if test "$create_libopts_links" = "yes";then
-		rm -f "src/$nam.stamp"
-		rm -f "src/$nam"
-		AC_CONFIG_LINKS([src/$nam:$i])
-	fi
-done
+dnl configuration options for config file parsing (inih)
+AC_DEFINE([INI_MAX_LINE], 2048, [inih maximum line size])
+AC_DEFINE([INI_ALLOW_INLINE_COMMENTS], 1, [whether to allowin inline comments])
+AC_DEFINE([INI_STOP_ON_FIRST_ERROR], 1, [whether to stop on first error])
+AC_DEFINE_UNQUOTED([INI_INLINE_COMMENT_PREFIXES], [";#"], [The inline comment prefixes])
+AC_DEFINE_UNQUOTED([INI_START_COMMENT_PREFIXES], [";#"], [The comment prefixes])
 
 AC_CONFIG_FILES([guile/pre-inst-guile], [chmod +x guile/pre-inst-guile])
 AC_CONFIG_FILES([
   Makefile
   doc/Makefile
   doc/credentials/Makefile
-  doc/credentials/openpgp/Makefile
   doc/credentials/srp/Makefile
   doc/credentials/x509/Makefile
-  doc/cyclo/Makefile
   doc/doxygen/Doxyfile
   doc/examples/Makefile
   doc/latex/Makefile
@@ -955,20 +1151,18 @@ AC_CONFIG_FILES([
   lib/includes/gnutls/gnutls.h
   lib/minitasn1/Makefile
   lib/nettle/Makefile
-  lib/opencdk/Makefile
-  lib/openpgp/Makefile
   lib/x509/Makefile
   lib/unistring/Makefile
   po/Makefile.in
   src/Makefile
+  src/args-std.def
   src/gl/Makefile
   tests/Makefile
   tests/windows/Makefile
   tests/cert-tests/Makefile
-  tests/dtls/Makefile
-  tests/key-tests/Makefile
   tests/slow/Makefile
   tests/suite/Makefile
+  fuzz/Makefile
 ])
 
 AC_OUTPUT
@@ -1016,17 +1210,17 @@ if features are disabled)
   DTLS-SRTP support:    $ac_enable_srtp
   ALPN support:         $ac_enable_alpn
   OCSP support:         $ac_enable_ocsp
-  Ses. ticket support:  $ac_enable_session_tickets
-  OpenPGP support:      $ac_enable_openpgp
   SRP support:          $ac_enable_srp
   PSK support:          $ac_enable_psk
   DHE support:          $ac_enable_dhe
   ECDHE support:        $ac_enable_ecdhe
+  GOST support:         $ac_enable_gost
   Anon auth support:    $ac_enable_anon
   Heartbeat support:    $ac_enable_heartbeat
   IDNA support:         $idna_support
   Non-SuiteB curves:    $enable_non_suiteb
   FIPS140 mode:         $enable_fips
+  Strict DER time:	$ac_strict_der_time
 ])
 
 AC_MSG_NOTICE([Optional libraries:
@@ -1044,7 +1238,7 @@ AC_MSG_NOTICE([System files:
   Trust store file:     $with_default_trust_store_file
   Blacklist file:       $with_default_blacklist_file
   CRL file:             $with_default_crl_file
-  Priority file:        $system_priority_file
+  Configuration file:   $system_config_file
   DNSSEC root key file: $unbound_root_key_file
 ])
 
@@ -1056,4 +1250,19 @@ AC_MSG_WARN([[
 *** Use the command: unbound-anchor -a "$unbound_root_key_file"
 *** to generate or update it.
 *** ]])
+fi
+
+if test "${enable_static}" != no;then
+AC_MSG_WARN([[
+*** GnuTLS will be build as a static library. That means that library
+*** constructors for gnutls_global_init will not be made available to
+*** linking applications. If you are building that library for arbitrary
+*** applications to link, do not enable static linking.
+]])
+fi
+
+if test "$enable_fuzzer_target" != "no";then
+AC_MSG_WARN([[
+*** This version of the library is for fuzzying purposes and is intentionally broken!
+]])
 fi

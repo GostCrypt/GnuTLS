@@ -16,9 +16,11 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
+#ifndef GNUTLS_LIB_ACCELERATED_X86_X86_COMMON_H
+# define GNUTLS_LIB_ACCELERATED_X86_X86_COMMON_H
 
 #include <config.h>
 
@@ -27,13 +29,11 @@
 void gnutls_cpuid(unsigned int func, unsigned int *ax, unsigned int *bx,
 		  unsigned int *cx, unsigned int *dx);
 
-# ifdef ASM_X86_32
-unsigned int gnutls_have_cpuid(void);
-# else
-#  define gnutls_have_cpuid() 1
-# endif				/* ASM_X86_32 */
-
 #endif
+
+#define CHECK_AES_KEYSIZE(s) \
+	if (s != 16 && s != 24 && s != 32) \
+		return GNUTLS_E_INVALID_REQUEST
 
 #define NN_HASH(name, update_func, digest_func, NAME) {	\
  #name,						\
@@ -44,3 +44,5 @@ unsigned int gnutls_have_cpuid(void);
  (nettle_hash_update_func *) update_func,	\
  (nettle_hash_digest_func *) digest_func	\
 } 
+
+#endif

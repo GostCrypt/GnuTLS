@@ -23,6 +23,9 @@ if ! test -z "${VALGRIND}"; then
 	VALGRIND="${LIBTOOL:-libtool} --mode=execute ${VALGRIND}"
 fi
 
+srcdir="${srcdir:-.}"
+. "${srcdir}/../scripts/common.sh"
+
 ${PROG}
 ret=$?
 if test $ret != 0; then
@@ -30,12 +33,15 @@ if test $ret != 0; then
 	exit $ret
 fi
 
+# All optimizations disabled
 GNUTLS_CPUID_OVERRIDE=0x1 ${PROG}
 ret=$?
 if test $ret != 0; then
 	echo "included cipher tests failed"
 	exit $ret
 fi
+
+exit_if_non_x86
 
 GNUTLS_CPUID_OVERRIDE=0x2 ${PROG}
 ret=$?
@@ -65,6 +71,17 @@ ret=$?
 if test $ret != 0; then
 	echo "PCLMUL-AVX cipher tests failed"
 	exit $ret
+fi
+
+#SHANI
+$(which lscpu)|grep Flags|grep sha_ni >/dev/null
+if test $? = 0;then
+	GNUTLS_CPUID_OVERRIDE=0x20 ${PROG}
+	ret=$?
+	if test $ret != 0; then
+		echo "SHANI cipher tests failed"
+		exit $ret
+	fi
 fi
 
 GNUTLS_CPUID_OVERRIDE=0x100000 ${PROG}

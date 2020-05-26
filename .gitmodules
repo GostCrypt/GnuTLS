@@ -1,9 +1,6 @@
 [submodule "devel/openssl"]
 	path = devel/openssl
 	url = https://github.com/openssl/openssl.git
-[submodule "tlsproxy"]
-	path = doc/examples/tlsproxy
-	url = https://github.com/abligh/tlsproxy.git
 [submodule "tests/suite/tls-fuzzer/tlsfuzzer"]
 	path = tests/suite/tls-fuzzer/tlsfuzzer
 	url = https://github.com/tomato42/tlsfuzzer.git
@@ -13,3 +10,12 @@
 [submodule "tests/suite/tls-fuzzer/tlslite-ng"]
 	path = tests/suite/tls-fuzzer/tlslite-ng
 	url = https://github.com/tomato42/tlslite-ng.git
+[submodule "gnulib"]
+	path = gnulib
+	url = https://gitlab.com/libidn/gnulib-mirror.git
+[submodule "devel/nettle"]
+	path = devel/nettle
+	url = https://gitlab.com/gnutls/nettle.git
+[submodule "devel/libtasn1"]
+	path = devel/libtasn1
+	url = https://gitlab.com/gnutls/libtasn1.git

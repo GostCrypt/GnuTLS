@@ -16,7 +16,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GnuTLS.  If not, see <http://www.gnu.org/licenses/>.
+ * along with GnuTLS.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -54,7 +54,6 @@ void doit(void)
 	unsigned char buf1[64];
 	unsigned char buf2[64];
 	pid_t pid;
-	unsigned char *tmp;
 	int ret;
 	FILE *fp;
 	unsigned i;

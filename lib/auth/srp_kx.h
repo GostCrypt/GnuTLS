@@ -16,14 +16,16 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
-#ifndef AUTH_SRP_H
-#define AUTH_SRP_H
+#ifndef GNUTLS_LIB_AUTH_SRP_KX_H
+#define GNUTLS_LIB_AUTH_SRP_KX_H
 
 #include <auth.h>
+
+#define MAX_FAKE_SALT_SEED_SIZE 64
 
 typedef struct gnutls_srp_client_credentials_st {
 	char *username;
@@ -38,7 +40,9 @@ typedef struct gnutls_srp_server_credentials_st {
 	 * password files.
 	 */
 	gnutls_srp_server_credentials_function *pwd_callback;
-	gnutls_datum_t fake_salt_seed;
+	unsigned char fake_salt_seed[MAX_FAKE_SALT_SEED_SIZE];
+	unsigned int fake_salt_seed_size;
+
 	unsigned int fake_salt_length;
 } srp_server_cred_st;
 
@@ -68,4 +72,4 @@ typedef struct srp_server_auth_info_st srp_server_auth_info_st;
 
 #endif				/* ENABLE_SRP */
 
-#endif
+#endif /* GNUTLS_LIB_AUTH_SRP_KX_H */

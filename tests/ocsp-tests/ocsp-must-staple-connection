@@ -53,6 +53,8 @@ fi
 
 . "${srcdir}/scripts/common.sh"
 
+check_for_datefudge
+
 eval "${GETPORT}"
 # Port for gnutls-serv
 TLS_SERVER_PORT=$PORT
@@ -69,14 +71,6 @@ SERVER_START_TIMEOUT=10
 OPENSSL=`which openssl`
 if ! test -x "${OPENSSL}"; then
     echo "You need openssl to run this test."
-    exit 77
-fi
-
-# Check for datefudge
-TSTAMP=`datefudge "2006-09-23" date -u +%s || true`
-if test "$TSTAMP" != "1158969600"; then
-    echo $TSTAMP
-    echo "You need datefudge to run this test."
     exit 77
 fi
 
@@ -101,6 +95,7 @@ echo "=== Generating good server certificate ==="
 
 rm -f "$TEMPLATE_FILE"
 cp "${srcdir}/ocsp-tests/certs/server_good.template" "$TEMPLATE_FILE"
+chmod u+w "$TEMPLATE_FILE"
 echo "ocsp_uri=http://localhost:${OCSP_PORT}/ocsp/" >>"$TEMPLATE_FILE"
 echo "tls_feature = 5" >>"$TEMPLATE_FILE"
 
@@ -203,7 +198,7 @@ launch_bare_server $$ \
 	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
 	  --x509certfile="${SERVER_CERT_FILE}" \
 	  --port="${TLS_SERVER_PORT}" \
-	  --ocsp-response="${OCSP_RESPONSE_FILE}"
+	  --ocsp-response="${OCSP_RESPONSE_FILE}" --ignore-ocsp-response-errors
 TLS_SERVER_PID="${!}"
 wait_server $TLS_SERVER_PID
 
@@ -238,7 +233,7 @@ launch_bare_server $$ \
 	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
 	  --x509certfile="${SERVER_CERT_FILE}" \
 	  --port="${TLS_SERVER_PORT}" \
-	  --ocsp-response="${OCSP_RESPONSE_FILE}"
+	  --ocsp-response="${OCSP_RESPONSE_FILE}" --ignore-ocsp-response-errors
 TLS_SERVER_PID="${!}"
 wait_server $TLS_SERVER_PID
 
@@ -274,7 +269,7 @@ launch_bare_server $$ \
 	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
 	  --x509certfile="${SERVER_CERT_FILE}" \
 	  --port="${TLS_SERVER_PORT}" \
-	  --ocsp-response="${OCSP_RESPONSE_FILE}"
+	  --ocsp-response="${OCSP_RESPONSE_FILE}" --ignore-ocsp-response-errors
 TLS_SERVER_PID="${!}"
 wait_server $TLS_SERVER_PID
 
@@ -301,7 +296,7 @@ echo "=== Test 5: Server with valid certificate - expired staple ==="
 rm -f "${OCSP_RESPONSE_FILE}"
 
 # Generate an OCSP response which expires in 2 days and use it after
-# a month.
+# a month. gnutls server doesn't send such a staple to clients.
 ${VALGRIND} ${OCSPTOOL} --generate-request --load-issuer "${srcdir}/ocsp-tests/certs/ocsp-server.pem" --load-cert "${SERVER_CERT_FILE}" --outfile "${OCSP_REQ_FILE}"
 datefudge -s ${EXP_OCSP_DATE} \
 	${OPENSSL} ocsp -index "${INDEXFILE}" -rsigner "${srcdir}/ocsp-tests/certs/ocsp-server.pem" -rkey "${srcdir}/ocsp-tests/certs/ocsp-server.key" -CA "${srcdir}/ocsp-tests/certs/ca.pem" -reqin "${OCSP_REQ_FILE}" -respout "${OCSP_RESPONSE_FILE}" -ndays 2
@@ -310,12 +305,29 @@ eval "${GETPORT}"
 # Port for gnutls-serv
 TLS_SERVER_PORT=$PORT
 PORT=${TLS_SERVER_PORT}
+
+TIMEOUT=$(which timeout)
+if test -n "$TIMEOUT";then
+${TIMEOUT} 30 "${GNUTLS_SERV}" --echo --disable-client-cert \
+	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
+	  --x509certfile="${SERVER_CERT_FILE}" \
+	  --port="${TLS_SERVER_PORT}" \
+	  --ocsp-response="${OCSP_RESPONSE_FILE}"
+if test $? != 1;then
+    echo "Running gnutls-serv with an expired response, succeeds!"
+    exit ${rc}
+fi
+fi
+
+echo "=== Test 5.1: Server with valid certificate - expired staple (ignoring errors) ==="
+
 launch_bare_server $$ \
 	  datefudge "${TESTDATE}" \
 	  "${GNUTLS_SERV}" --echo --disable-client-cert \
 	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
 	  --x509certfile="${SERVER_CERT_FILE}" \
 	  --port="${TLS_SERVER_PORT}" \
+	  --ignore-ocsp-response-errors \
 	  --ocsp-response="${OCSP_RESPONSE_FILE}"
 TLS_SERVER_PID="${!}"
 wait_server $TLS_SERVER_PID
@@ -359,7 +371,7 @@ launch_bare_server $$ \
 	  --x509keyfile="${srcdir}/ocsp-tests/certs/server_good.key" \
 	  --x509certfile="${SERVER_CERT_FILE}" \
 	  --port="${TLS_SERVER_PORT}" \
-	  --ocsp-response="${OCSP_RESPONSE_FILE}"
+	  --ocsp-response="${OCSP_RESPONSE_FILE}" --ignore-ocsp-response-errors
 TLS_SERVER_PID="${!}"
 wait_server $TLS_SERVER_PID
 

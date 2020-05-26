@@ -23,6 +23,7 @@
 srcdir="${srcdir:-.}"
 CLI="${CLI:-../src/gnutls-cli${EXEEXT}}"
 DIFF="${DIFF:-diff -b -B}"
+SED="${SED:-sed}"
 unset RETCODE
 
 TMPFILE=cipher-listings.$$.tmp
@@ -45,13 +46,14 @@ fi
 
 echo "Checking ciphersuite listings"
 
+tab=$(printf '\t')
 check()
 {
 	prio=$2
 	name=$1
 	echo checking $prio
-	"${CLI}" --list --priority $prio|grep -v ^Certificate|grep -v ^Ciphers|grep -v ^MACs|grep -v ^Key|grep -v Compression|grep -v ^Elliptic|sed -e 's/\tSSL3.0$//g' -e 's/\tTLS1.0$//g'|grep -v ^PK>$TMPFILE
-	cat ${srcdir}/data/listings-$name|sed 's/\tSSL3.0$//g' >$TMPFILE2
+	"${CLI}" --list --priority $prio|grep -v ^Certificate|grep -v ^Ciphers|grep -v ^MACs|grep -v ^Key|grep -v Compression|grep -v ^Groups|grep -v ^Elliptic|${SED} -e 's/'"${tab}"'SSL3.0$//g' -e 's/'"${tab}"'TLS1.0$//g'|grep -v ^PK>$TMPFILE
+	cat ${srcdir}/data/listings-$name|${SED} 's/'"${tab}"'SSL3.0$//g' >$TMPFILE2
 	${DIFF} ${TMPFILE} ${TMPFILE2}
 	if test $? != 0;then
 		echo Error checking $prio with $name
@@ -73,12 +75,23 @@ fi
 # This is a unit test for gnutls_priority_get_cipher_suite_index
 
 if test "${ENABLE_SSL3}" = "1";then
+echo "Running with SSL3.0 enabled"
 check SSL3.0 "NORMAL:-VERS-ALL:+VERS-SSL3.0:+ARCFOUR-128"
+check old-SSL3.0-TLS1.1 "NORMAL:-VERS-ALL:+VERS-TLS1.0:+VERS-SSL3.0:+VERS-TLS1.1"
+else
+echo "Running without support for SSL3.0"
+check SSL3.0-TLS1.1 "NORMAL:-VERS-ALL:+VERS-TLS1.0:+VERS-SSL3.0:+VERS-TLS1.1"
 fi
 check TLS1.0 "NORMAL:-VERS-ALL:+VERS-TLS1.0"
 check TLS1.1 "NORMAL:-VERS-ALL:+VERS-TLS1.1"
-check SSL3.0-TLS1.1 "NORMAL:-VERS-ALL:+VERS-TLS1.0:+VERS-SSL3.0:+VERS-TLS1.1"
 check DTLS1.0 "NORMAL:-VERS-ALL:+VERS-DTLS1.0"
+# Priority strings prior to 3.6.x did not require the +GROUP option; here we
+# test whether these work as expected.
+check legacy1 "NONE:+VERS-TLS-ALL:+MAC-ALL:+RSA:+AES-128-GCM:+SIGN-ALL:+COMP-NULL"
+check legacy2 "NONE:+VERS-TLS-ALL:+MAC-ALL:+RSA:+CAMELLIA-256-GCM:+SIGN-ALL:+COMP-NULL"
+check legacy3 "NONE:+VERS-TLS-ALL:+MAC-ALL:+RSA:+CAMELLIA-256-GCM:+SIGN-ALL:+COMP-NULL:+CTYPE-OPENPGP"
+check legacy4 "NONE:+VERS-TLS-ALL:+MAC-ALL:+RSA:+CAMELLIA-256-GCM:+SIGN-ALL:+COMP-NULL:-CTYPE-OPENPGP"
+
 
 rm -f ${TMPFILE}
 rm -f ${TMPFILE2}

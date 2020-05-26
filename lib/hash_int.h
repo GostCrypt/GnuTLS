@@ -16,12 +16,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
-#ifndef GNUTLS_HASH_INT_H
-#define GNUTLS_HASH_INT_H
+#ifndef GNUTLS_LIB_HASH_INT_H
+#define GNUTLS_LIB_HASH_INT_H
 
 #include "gnutls_int.h"
 #include <gnutls/crypto.h>
@@ -41,12 +41,14 @@ typedef int (*nonce_func) (void *handle, const void *text, size_t size);
 typedef int (*output_func) (void *src_ctx, void *digest,
 			    size_t digestsize);
 typedef void (*hash_deinit_func) (void *handle);
+typedef void *(*copy_func) (const void *handle);
 
 typedef struct {
 	const mac_entry_st *e;
 	hash_func hash;
 	output_func output;
 	hash_deinit_func deinit;
+	copy_func copy;
 
 	const void *key;	/* esoteric use by SSL3 MAC functions */
 	int keysize;
@@ -62,6 +64,7 @@ typedef struct {
 	nonce_func setnonce;
 	output_func output;
 	hash_deinit_func deinit;
+	copy_func copy;
 
 	void *handle;
 } mac_hd_st;
@@ -72,6 +75,8 @@ int _gnutls_digest_exists(gnutls_digest_algorithm_t algo);
 int _gnutls_mac_exists(gnutls_mac_algorithm_t algorithm);
 int _gnutls_mac_init(mac_hd_st *, const mac_entry_st * e,
 		     const void *key, int keylen);
+
+int _gnutls_mac_copy(const mac_hd_st * handle, mac_hd_st * dst);
 
 int _gnutls_mac_fast(gnutls_mac_algorithm_t algorithm, const void *key,
 		     int keylen, const void *text, size_t textlen,
@@ -122,6 +127,8 @@ _gnutls_hash(digest_hd_st * handle, const void *text, size_t textlen)
 
 void _gnutls_hash_deinit(digest_hd_st * handle, void *digest);
 
+int _gnutls_hash_copy(const digest_hd_st * handle, digest_hd_st * dst);
+
 int
 _gnutls_hash_fast(gnutls_digest_algorithm_t algorithm,
 		  const void *text, size_t textlen, void *digest);
@@ -136,9 +143,6 @@ int _gnutls_mac_output_ssl3(digest_hd_st * handle, void *digest);
 int _gnutls_ssl3_generate_random(void *secret, int secret_len,
 				 void *rnd, int random_len, int bytes,
 				 uint8_t * ret);
-int _gnutls_ssl3_hash_md5(const void *first, int first_len,
-			  const void *second, int second_len,
-			  int ret_len, uint8_t * ret);
 
 int _gnutls_mac_deinit_ssl3_handshake(digest_hd_st * handle, void *digest,
 				      uint8_t * key, uint32_t key_size);
@@ -153,4 +157,4 @@ inline static int IS_SHA(gnutls_digest_algorithm_t algo)
 	return 0;
 }
 
-#endif				/* GNUTLS_HASH_INT_H */
+#endif /* GNUTLS_LIB_HASH_INT_H */

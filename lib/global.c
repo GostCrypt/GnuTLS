@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -28,7 +28,7 @@
 #include <random.h>
 #include <gnutls/pkcs11.h>
 
-#include <extensions.h>	/* for _gnutls_ext_init */
+#include <hello_ext.h>	/* for _gnutls_hello_ext_init */
 #include <supplemental.h> /* for _gnutls_supplemental_deinit */
 #include <locks.h>
 #include <system.h>
@@ -78,6 +78,8 @@ ASN1_TYPE _gnutls_gnutls_asn = ASN1_TYPE_EMPTY;
 gnutls_log_func _gnutls_log_func = NULL;
 gnutls_audit_log_func _gnutls_audit_log_func = NULL;
 int _gnutls_log_level = 0;	/* default log level */
+
+unsigned int _gnutls_global_version = GNUTLS_VERSION_NUMBER;
 
 static int _gnutls_global_init(unsigned constructor);
 static void _gnutls_global_deinit(unsigned destructor);
@@ -209,7 +211,7 @@ static int _gnutls_init_ret = 0;
  * called as many times as gnutls_global_init().  This is useful when
  * GnuTLS is used by more than one library in an application.  This
  * function can be called many times, but will only do something the
- * first time.
+ * first time. It is thread safe since GnuTLS 3.3.0.
  *
  * A subsequent call of this function if the initial has failed will
  * return the same error code.
@@ -310,7 +312,7 @@ static int _gnutls_global_init(unsigned constructor)
 	}
 
 	/* Initialize the default TLS extensions */
-	ret = _gnutls_ext_init();
+	ret = _gnutls_hello_ext_init();
 	if (ret < 0) {
 		gnutls_assert();
 		goto out;
@@ -366,11 +368,10 @@ static int _gnutls_global_init(unsigned constructor)
 
 	_gnutls_register_accel_crypto();
 	_gnutls_cryptodev_init();
-	_gnutls_load_system_priorities();
 
 #ifdef ENABLE_FIPS140
-	/* These self tests are performed on the overriden algorithms
-	 * (e.g., AESNI overriden AES). They are after _gnutls_register_accel_crypto()
+	/* These self tests are performed on the overridden algorithms
+	 * (e.g., AESNI overridden AES). They are after _gnutls_register_accel_crypto()
 	 * intentionally */
 	if (res != 0) {
 		ret = _gnutls_fips_perform_self_checks2();
@@ -383,6 +384,7 @@ static int _gnutls_global_init(unsigned constructor)
 		_gnutls_fips_mode_reset_zombie();
 	}
 #endif
+	_gnutls_load_system_priorities();
 	_gnutls_switch_lib_state(LIB_STATE_OPERATIONAL);
 	ret = 0;
 
@@ -412,7 +414,7 @@ static void _gnutls_global_deinit(unsigned destructor)
 		_gnutls_system_key_deinit();
 		gnutls_crypto_deinit();
 		_gnutls_rnd_deinit();
-		_gnutls_ext_deinit();
+		_gnutls_hello_ext_deinit();
 		asn1_delete_structure(&_gnutls_gnutls_asn);
 		asn1_delete_structure(&_gnutls_pkix1_asn);
 
@@ -435,6 +437,8 @@ static void _gnutls_global_deinit(unsigned destructor)
 #ifdef HAVE_TROUSERS
 		_gnutls_tpm_global_deinit();
 #endif
+
+		_gnutls_nss_keylog_deinit();
 
 		gnutls_mutex_deinit(&_gnutls_file_mutex);
 		gnutls_mutex_deinit(&_gnutls_pkcs11_mutex);

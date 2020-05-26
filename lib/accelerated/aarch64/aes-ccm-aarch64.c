@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -81,6 +81,9 @@ static int
 aes_ccm_cipher_setkey(void *_ctx, const void *key, size_t length)
 {
 	struct ccm_aarch64_aes_ctx *ctx = _ctx;
+
+	CHECK_AES_KEYSIZE(length);
+
 	aes_v8_set_encrypt_key(key, length*8, &ctx->key);
 
 	return 0;

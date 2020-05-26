@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <gnutls/gnutls.h>
+#include <assert.h>
 
 #include "utils.h"
 
@@ -51,13 +52,15 @@ try_prio(const char *prio, const char *expected_str)
 	if (p == NULL && expected_str == NULL)
 		goto ok;
 
+	assert(strstr(gnutls_get_system_config_file(), "system.prio") != NULL);
+
 	if (p == NULL || expected_str == NULL || strcmp(p, expected_str) != 0) {
 		fail("test: %s: error; got: %s, expected: %s\n", prio, p, expected_str);
 		exit(1);
 	}
 
  ok:
-	free(p);
+	gnutls_free(p);
 	gnutls_global_deinit();
 }
 
@@ -84,4 +87,3 @@ void doit(void)
 	try_prio("@HELLONO:+AES-128-CBC", NULL);
 	try_prio("@HELLONO,:+AES-128-CBC", NULL);
 }
-

@@ -16,7 +16,7 @@
 # Lesser General Public License for more details.
 #
 # You should have received a copy of the GNU Lesser General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>
+# along with this program.  If not, see <https://www.gnu.org/licenses/>
 
 include $(top_srcdir)/lib/common.mk
 
@@ -26,8 +26,7 @@ AM_CPPFLAGS = \
 	-I$(srcdir)/../includes		\
 	-I$(builddir)/../includes	\
 	-I$(builddir)/../../gl          \
-	-I$(srcdir)/..			\
-	-I$(srcdir)/../opencdk
+	-I$(srcdir)/..
 
 if ENABLE_MINITASN1
 AM_CPPFLAGS += -I$(srcdir)/../minitasn1
@@ -39,4 +38,4 @@ libgnutls_auth_la_SOURCES = anon.c cert.c dh_common.c dhe.c \
 	rsa_psk.c dhe_psk.c psk.c psk_passwd.c rsa.c srp_kx.c \
 	srp_passwd.c srp_rsa.c srp_sb64.c anon.h cert.h dh_common.h \
 	psk.h psk_passwd.h srp_kx.h srp_passwd.h anon_ecdh.c \
-	ecdhe.c ecdhe.h rsa_common.h
+	ecdhe.c ecdhe.h rsa_common.h vko_gost.c

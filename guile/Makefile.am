@@ -1,5 +1,5 @@
 #  GnuTLS --- Guile bindings for GnuTLS.
-#  Copyright (C) 2007-2012, 2016 Free Software Foundation, Inc.
+#  Copyright (C) 2007-2012, 2016, 2019 Free Software Foundation, Inc.
 #
 #  GnuTLS is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -22,11 +22,10 @@ SUBDIRS = src
 
 EXTRA_DIST = .dir-locals.el
 
-guilemoduledir = $(GUILE_SITE)
-guilemodulesubdir = $(GUILE_SITE)/gnutls
+guilesitesubdir = $(guilesitedir)/gnutls
 
-nodist_guilemodule_DATA = modules/gnutls.scm
-dist_guilemodulesub_DATA = modules/gnutls/extra.scm
+nodist_guilesite_DATA = modules/gnutls.scm
+dist_guilesitesub_DATA = modules/gnutls/extra.scm
 
 documentation_modules =				\
   modules/system/documentation/README		\
@@ -45,7 +44,7 @@ CLEANFILES = modules/gnutls.scm
 
 .in.scm:
 	$(AM_V_GEN)$(MKDIR_P) "`dirname "$@"`" ; cat "$^" |		\
-	  $(SED) -e's|[@]guileextensiondir[@]|$(guileextensiondir)|g'	\
+	  $(SED) -e's|[@]maybe_guileextensiondir[@]|$(maybe_guileextensiondir)|g' \
 	  > "$@.tmp"
 	$(AM_V_at)mv "$@.tmp" "$@"
 
@@ -56,13 +55,13 @@ CLEANFILES = modules/gnutls.scm
 
 if HAVE_GUILD
 
-guileobjectsubdir = $(guileobjectdir)/gnutls
-nodist_guileobject_DATA = modules/gnutls.go
-nodist_guileobjectsub_DATA = modules/gnutls/extra.go
+guilesiteccachesubdir = $(guilesiteccachedir)/gnutls
+nodist_guilesiteccache_DATA = modules/gnutls.go
+nodist_guilesiteccachesub_DATA = modules/gnutls/extra.go
 
 GOBJECTS =					\
-  $(nodist_guileobject_DATA)			\
-  $(nodist_guileobjectsub_DATA)
+  $(nodist_guilesiteccache_DATA)		\
+  $(nodist_guilesiteccachesub_DATA)
 
 CLEANFILES += $(GOBJECTS)
 
@@ -70,15 +69,22 @@ AM_V_GUILEC = $(AM_V_GUILEC_$(V))
 AM_V_GUILEC_ = $(AM_V_GUILEC_$(AM_DEFAULT_VERBOSITY))
 AM_V_GUILEC_0 = @echo "  GUILEC  " $@;
 
+if CROSS_COMPILING
+CROSS_COMPILING_VARIABLE = GNUTLS_GUILE_CROSS_COMPILING=yes
+else
+CROSS_COMPILING_VARIABLE =
+endif
+
 # Make sure 'gnutls.scm' is built first.
 # Unset 'GUILE_LOAD_COMPILED_PATH' so we can be sure that any .go file that we
 # load comes from the build directory.
 # XXX: Use the C locale for when Guile lacks
-# <http://git.sv.gnu.org/cgit/guile.git/commit/?h=stable-2.0&id=e2c6bf3866d1186c60bacfbd4fe5037087ee5e3f>.
+# <https://git.sv.gnu.org/cgit/guile.git/commit/?h=stable-2.0&id=e2c6bf3866d1186c60bacfbd4fe5037087ee5e3f>.
 %.go: %.scm modules/gnutls.scm
 	$(AM_V_GUILEC)$(MKDIR_P) "`dirname "$@"`" ;			\
 	$(AM_V_P) && out=1 || out=- ;					\
 	unset GUILE_LOAD_COMPILED_PATH ; LC_ALL=C			\
+	GUILE_AUTO_COMPILE=0 $(CROSS_COMPILING_VARIABLE)		\
 	GNUTLS_GUILE_EXTENSION_DIR="$(abs_top_builddir)/guile/src"	\
 	$(GUILD) compile --target="$(host)"				\
 	  -L "$(top_builddir)/guile/modules"				\
@@ -102,14 +108,8 @@ TESTS =						\
   tests/errors.scm				\
   tests/x509-certificates.scm			\
   tests/x509-auth.scm				\
+  tests/reauth.scm				\
   tests/priorities.scm
-
-if ENABLE_OPENPGP
-TESTS +=					\
-  tests/openpgp-keys.scm			\
-  tests/openpgp-keyring.scm			\
-  tests/openpgp-auth.scm
-endif
 
 if ENABLE_SRP
 TESTS +=					\
@@ -125,12 +125,6 @@ LOG_COMPILER = $(top_builddir)/guile/pre-inst-guile -L $(srcdir)/tests
 
 EXTRA_DIST +=					\
   $(TESTS)					\
-  tests/openpgp-pub.asc				\
-  tests/openpgp-sec.asc				\
-  tests/openpgp-elg-pub.asc			\
-  tests/openpgp-elg-sec.asc			\
-  tests/openpgp-keyring.gpg			\
-  tests/openpgp-keyring.asc			\
   tests/rsa-parameters.pem			\
   tests/dh-parameters.pem			\
   tests/x509-certificate.pem			\

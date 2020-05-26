@@ -17,7 +17,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see
- * <http://www.gnu.org/licenses/>.
+ * <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -83,13 +83,10 @@ int main(int argc, char **argv)
 
 static void cmd_parser(int argc, char **argv)
 {
-	unsigned int optct;
 	/* Note that the default sec-param is legacy because several TPMs
 	 * cannot handle larger keys.
 	 */
-	optct = optionProcess(&systemkey_toolOptions, argc, argv);
-	argc += optct;
-	argv += optct;
+	optionProcess(&systemkey_toolOptions, argc, argv);
 
 	gnutls_global_set_log_function(tls_log_func);
 

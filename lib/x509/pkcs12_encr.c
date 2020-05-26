@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -61,9 +61,14 @@ _gnutls_pkcs12_string_to_key(const mac_entry_st * me,
 	unsigned v_size = 0;
 
 	switch (me->id) {
+		case GNUTLS_DIG_GOSTR_94:
+			v_size = 32;
+			break;
 		case GNUTLS_DIG_SHA1:
 		case GNUTLS_DIG_SHA224:
 		case GNUTLS_DIG_SHA256:
+		case GNUTLS_DIG_STREEBOG_256:
+		case GNUTLS_DIG_STREEBOG_512:
 			v_size = 64;
 			break;
 		case GNUTLS_DIG_SHA384:
@@ -91,7 +96,7 @@ _gnutls_pkcs12_string_to_key(const mac_entry_st * me,
 				return gnutls_assert_val(GNUTLS_E_MEMORY_ERROR);
 			ucs2.size = 2;
 		} else {
-			rc = _gnutls_utf8_to_ucs2(pw, pwlen, &ucs2);
+			rc = _gnutls_utf8_to_ucs2(pw, pwlen, &ucs2, 1);
 			if (rc < 0)
 				return gnutls_assert_val(rc);
 

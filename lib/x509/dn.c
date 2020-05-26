@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -74,7 +74,7 @@ static int append_elements(ASN1_TYPE asn1_struct, const char *asn1_rdn_name, gnu
 		goto cleanup;
 	}
 
-	do {		/* Move to the attibute type and values
+	do {		/* Move to the attribute type and values
 				 */
 		k2++;
 
@@ -286,6 +286,8 @@ _gnutls_x509_parse_dn(ASN1_TYPE asn1_struct,
 		goto cleanup;
 	}
 
+	assert(dn.data != NULL);
+
 	if (buf) {
 		memcpy(buf, dn.data, dn.size);
 		buf[dn.size] = 0;
@@ -357,7 +359,7 @@ _gnutls_x509_parse_dn_oid(ASN1_TYPE asn1_struct,
 
 		k2 = 0;
 
-		do {		/* Move to the attibute type and values
+		do {		/* Move to the attribute type and values
 				 */
 			k2++;
 
@@ -517,7 +519,7 @@ _gnutls_x509_get_dn_oid(ASN1_TYPE asn1_struct,
 
 		k2 = 0;
 
-		do {		/* Move to the attibute type and values
+		do {		/* Move to the attribute type and values
 				 */
 			k2++;
 
@@ -980,14 +982,56 @@ int
 _gnutls_x509_compare_raw_dn(const gnutls_datum_t * dn1,
 			    const gnutls_datum_t * dn2)
 {
+	int ret;
+	gnutls_datum_t str1, str2;
 
-	if (dn1->size != dn2->size) {
+	/* Simple case of completely identical? */
+
+	if (dn1->size == dn2->size) {
+		if (memcmp(dn1->data, dn2->data, dn2->size) == 0) {
+			return 1;
+		}
+	}
+
+	/* RFC5280 (https://tools.ietf.org/html/rfc5280#section-7.1)
+	 * requires that the LDAP StringPrep profile and caseIgnoreMatch
+	 * must be used for this comparison. We do not use that but
+	 * instead we do a simpler comparison that ignores the tags used
+	 * such as `UTF8String` and `PrintableString`. */
+
+	if ((dn1->size == 0) || (dn2->size == 0)) {
 		gnutls_assert();
 		return 0;
 	}
-	if (memcmp(dn1->data, dn2->data, dn2->size) != 0) {
+
+	ret = gnutls_x509_rdn_get2(dn1, &str1, 0);
+	if (ret < 0) {
 		gnutls_assert();
 		return 0;
 	}
-	return 1;		/* they match */
+
+	ret = gnutls_x509_rdn_get2(dn2, &str2, 0);
+	if (ret < 0) {
+		gnutls_assert();
+		_gnutls_free_datum(&str1);
+		return 0;
+	}
+
+	if (str1.size != str2.size) {
+		ret = 0;
+		goto cleanup;
+	}
+	if (memcmp(str1.data, str2.data, str2.size) != 0) {
+		gnutls_assert();
+		ret = 0;
+		goto cleanup;
+	}
+
+	ret = 1;		/* they match */
+
+cleanup:
+	_gnutls_free_datum(&str1);
+	_gnutls_free_datum(&str2);
+
+	return ret;
 }

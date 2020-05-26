@@ -15,7 +15,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -236,8 +236,7 @@ int gnutls_x509_ext_import_subject_alt_names(const gnutls_datum_t * ext,
 		goto cleanup;
 	}
 
-	i = 0;
-	do {
+	for (i=0;;i++) {
 		san.data = NULL;
 		san.size = 0;
 		othername_oid.data = NULL;
@@ -264,9 +263,7 @@ int gnutls_x509_ext_import_subject_alt_names(const gnutls_datum_t * ext,
 					    (char *)othername_oid.data, 1);
 		if (ret < 0)
 			break;
-
-		i++;
-	} while (ret >= 0);
+	}
 
 	sans->size = i;
 	if (ret < 0 && ret != GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE) {
@@ -453,7 +450,7 @@ int gnutls_x509_ext_import_name_constraints(const gnutls_datum_t * ext,
  *
  * This function will convert the provided name constraints type to a
  * DER-encoded PKIX NameConstraints (2.5.29.30) extension. The output data in 
- * @ext will be allocated usin gnutls_malloc().
+ * @ext will be allocated using gnutls_malloc().
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a negative error value.
  *
@@ -916,8 +913,7 @@ int gnutls_x509_ext_import_authority_key_id(const gnutls_datum_t * ext,
 	}
 
 	/* Read authorityCertIssuer */
-	i = 0;
-	do {
+	for (i=0;;i++) {
 		san.data = NULL;
 		san.size = 0;
 		othername_oid.data = NULL;
@@ -944,9 +940,7 @@ int gnutls_x509_ext_import_authority_key_id(const gnutls_datum_t * ext,
 					    (char *)othername_oid.data, 1);
 		if (ret < 0)
 			break;
-
-		i++;
-	} while (ret >= 0);
+	}
 
 	aki->cert_issuer.size = i;
 	if (ret < 0 && ret != GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE
@@ -1052,7 +1046,7 @@ int gnutls_x509_ext_export_authority_key_id(gnutls_x509_aki_t aki,
 							   san.data,
 							   aki->cert_issuer.
 							   names[i].san.size);
-			if (result < 0) {
+			if (ret < 0) {
 				gnutls_assert();
 				goto cleanup;
 			}
@@ -1520,9 +1514,9 @@ int gnutls_x509_ext_export_basic_constraints(unsigned int ca, int pathlen,
  *
  * Since: 3.3.0
  **/
-int gnutls_x509_ext_import_proxy(const gnutls_datum_t * ext, int *pathlen,
-			      char **policyLanguage, char **policy,
-			      size_t * sizeof_policy)
+int gnutls_x509_ext_import_proxy(const gnutls_datum_t *ext, int *pathlen,
+			         char **policyLanguage, char **policy,
+			         size_t *sizeof_policy)
 {
 	ASN1_TYPE c2 = ASN1_TYPE_EMPTY;
 	int result;
@@ -1563,11 +1557,6 @@ int gnutls_x509_ext_import_proxy(const gnutls_datum_t * ext, int *pathlen,
 		goto cleanup;
 	}
 
-	if (policyLanguage) {
-		*policyLanguage = (char *)value1.data;
-		value1.data = NULL;
-	}
-
 	result = _gnutls_x509_read_value(c2, "proxyPolicy.policy", &value2);
 	if (result == GNUTLS_E_ASN1_ELEMENT_NOT_FOUND) {
 		if (policy)
@@ -1584,6 +1573,11 @@ int gnutls_x509_ext_import_proxy(const gnutls_datum_t * ext, int *pathlen,
 		}
 		if (sizeof_policy)
 			*sizeof_policy = value2.size;
+	}
+
+	if (policyLanguage) {
+		*policyLanguage = (char *)value1.data;
+		value1.data = NULL;
 	}
 
 	result = 0;
@@ -1994,7 +1988,6 @@ int gnutls_x509_ext_import_policies(const gnutls_datum_t * ext,
 				ret =
 				    decode_user_notice(td.data, td.size, &txt);
 				gnutls_free(td.data);
-				td.data = NULL;
 
 				if (ret < 0) {
 					gnutls_assert();
@@ -2445,8 +2438,7 @@ int gnutls_x509_ext_import_crl_dist_points(const gnutls_datum_t * ext,
 		snprintf(name, sizeof(name),
 			 "?%u.distributionPoint.fullName", (unsigned)i + 1);
 
-		j = 0;
-		do {
+		for (j=0;;j++) {
 			san.data = NULL;
 			san.size = 0;
 
@@ -2465,9 +2457,7 @@ int gnutls_x509_ext_import_crl_dist_points(const gnutls_datum_t * ext,
 			if (ret < 0)
 				break;
 			san.data = NULL; /* it is now in cdp */
-
-			j++;
-		} while (ret >= 0);
+		}
 
 		i++;
 	} while (ret >= 0);
@@ -3136,7 +3126,7 @@ int gnutls_x509_ext_import_key_purposes(const gnutls_datum_t * ext,
  *
  * This function will convert the key purposes type to a
  * DER-encoded PKIX ExtKeyUsageSyntax (2.5.29.37) extension. The output data in 
- * @ext will be allocated usin gnutls_malloc().
+ * @ext will be allocated using gnutls_malloc().
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a negative error value.
  *

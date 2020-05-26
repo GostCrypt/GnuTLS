@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2003-2016 Free Software Foundation, Inc.
- * Copyright (C) 2014-2016 Red Hat
+ * Copyright (C) 2014-2017 Red Hat
  * Copyright (C) 2014-2016 Nikos Mavrogiannopoulos
  *
  * Author: Nikos Mavrogiannopoulos
@@ -18,7 +18,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -36,7 +36,8 @@
 #include <num.h>
 #include <random.h>
 #include <pk.h>
-#include <nettle/pbkdf2.h>
+#include "attributes.h"
+#include "prov-seed.h"
 
 static int _decode_pkcs8_ecc_key(ASN1_TYPE pkcs8_asn,
 				 gnutls_x509_privkey_t pkey);
@@ -65,12 +66,50 @@ _encode_privkey(gnutls_x509_privkey_t pkey, gnutls_datum_t * raw)
 	int ret;
 	ASN1_TYPE spk = ASN1_TYPE_EMPTY;
 
-	switch (pkey->pk_algorithm) {
+	switch (pkey->params.algo) {
+	case GNUTLS_PK_EDDSA_ED25519:
+	case GNUTLS_PK_EDDSA_ED448:
+		/* we encode as octet string (which is going to be stored inside
+		 * another octet string). No comments. */
+		ret = _gnutls_x509_encode_string(ASN1_ETYPE_OCTET_STRING,
+						 pkey->params.raw_priv.data, pkey->params.raw_priv.size,
+						 raw);
+		if (ret < 0)
+			gnutls_assert();
+		return ret;
+
+	case GNUTLS_PK_GOST_01:
+	case GNUTLS_PK_GOST_12_256:
+	case GNUTLS_PK_GOST_12_512:
+		if ((ret = asn1_create_element
+					(_gnutls_get_gnutls_asn(), "GNUTLS.GOSTPrivateKey", &spk))
+				!= ASN1_SUCCESS) {
+			gnutls_assert();
+			ret = _gnutls_asn2err(ret);
+			goto error;
+		}
+
+		ret = _gnutls_x509_write_key_int_le(spk, "", pkey->params.params[GOST_K]);
+		if (ret < 0) {
+			gnutls_assert();
+			goto error;
+		}
+
+		ret = _gnutls_x509_der_encode(spk, "", raw, 0);
+		if (ret < 0) {
+			gnutls_assert();
+			goto error;
+		}
+
+		asn1_delete_structure2(&spk, ASN1_DELETE_FLAG_ZEROIZE);
+		break;
+
 	case GNUTLS_PK_RSA:
-	case GNUTLS_PK_EC:
+	case GNUTLS_PK_RSA_PSS:
+	case GNUTLS_PK_ECDSA:
 		ret =
-		    gnutls_x509_privkey_export2(pkey, GNUTLS_X509_FMT_DER,
-						raw);
+		    _gnutls_x509_export_int2(pkey->key, GNUTLS_X509_FMT_DER,
+					     "", raw);
 		if (ret < 0) {
 			gnutls_assert();
 			goto error;
@@ -132,15 +171,14 @@ encode_to_private_key_info(gnutls_x509_privkey_t pkey,
 	gnutls_datum_t algo_params = { NULL, 0 };
 	gnutls_datum_t algo_privkey = { NULL, 0 };
 
-	oid = gnutls_pk_get_oid(pkey->pk_algorithm);
+	oid = gnutls_pk_get_oid(pkey->params.algo);
 	if (oid == NULL) {
 		gnutls_assert();
 		return GNUTLS_E_UNIMPLEMENTED_FEATURE;
 	}
 
 	result =
-	    _gnutls_x509_write_pubkey_params(pkey->pk_algorithm,
-					     &pkey->params, &algo_params);
+	    _gnutls_x509_write_pubkey_params(&pkey->params, &algo_params);
 	if (result < 0) {
 		gnutls_assert();
 		return result;
@@ -207,13 +245,31 @@ encode_to_private_key_info(gnutls_x509_privkey_t pkey,
 		goto error;
 	}
 
-	/* Append an empty Attributes field.
-	 */
-	result = asn1_write_value(*pkey_info, "attributes", NULL, 0);
-	if (result != ASN1_SUCCESS) {
-		gnutls_assert();
-		result = _gnutls_asn2err(result);
-		goto error;
+	if ((pkey->params.pkflags & GNUTLS_PK_FLAG_PROVABLE) && pkey->params.seed_size > 0) {
+		gnutls_datum_t seed_info;
+		/* rfc8479 attribute encoding */
+
+		result = _x509_encode_provable_seed(pkey, &seed_info);
+		if (result < 0) {
+			gnutls_assert();
+			goto error;
+		}
+
+		result = _x509_set_attribute(*pkey_info, "attributes", OID_ATTR_PROV_SEED, &seed_info);
+		gnutls_free(seed_info.data);
+		if (result < 0) {
+			gnutls_assert();
+			goto error;
+		}
+	} else {
+		/* Append an empty Attributes field.
+		 */
+		result = asn1_write_value(*pkey_info, "attributes", NULL, 0);
+		if (result != ASN1_SUCCESS) {
+			gnutls_assert();
+			result = _gnutls_asn2err(result);
+			goto error;
+		}
 	}
 
 	/* DER Encode the generated private key info.
@@ -385,7 +441,7 @@ gnutls_x509_privkey_export_pkcs8(gnutls_x509_privkey_t key,
 {
 	ASN1_TYPE pkcs8_asn = NULL, pkey_info;
 	int ret;
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
 	schema_id schema;
 
 	if (key == NULL) {
@@ -545,7 +601,6 @@ gnutls_pkcs8_info(const gnutls_datum_t * data, gnutls_x509_crt_fmt_t format,
  cleanup:
 	if (ret != GNUTLS_E_UNKNOWN_CIPHER_TYPE && oid) {
 		gnutls_free(*oid);
-		*oid = NULL;
 	}
 	if (need_free)
 		_gnutls_free_datum(&_data);
@@ -587,7 +642,7 @@ gnutls_x509_privkey_export2_pkcs8(gnutls_x509_privkey_t key,
 {
 	ASN1_TYPE pkcs8_asn = NULL, pkey_info;
 	int ret;
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
 	schema_id schema;
 
 	if (key == NULL) {
@@ -665,7 +720,7 @@ static int pkcs8_key_decrypt(const gnutls_datum_t * raw_key,
 {
 	int result, len;
 	char enc_oid[MAX_OID_SIZE];
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
 	int params_start, params_end, params_len;
 	struct pbkdf2_params kdf_params;
 	struct pbe_enc_params enc_params;
@@ -917,7 +972,7 @@ static int
 _decode_pkcs8_rsa_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 {
 	int ret;
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
 
 	ret = _gnutls_x509_read_value(pkcs8_asn, "privateKey", &tmp);
 	if (ret < 0) {
@@ -929,9 +984,55 @@ _decode_pkcs8_rsa_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 	_gnutls_free_key_datum(&tmp);
 
 	if (pkey->key == NULL) {
+		ret = GNUTLS_E_PK_INVALID_PRIVKEY;
 		gnutls_assert();
 		goto error;
 	}
+
+	ret = 0;
+
+      error:
+	return ret;
+}
+
+/* Decodes an RSA-PSS privateKey from a PKCS8 structure.
+ */
+static int
+_decode_pkcs8_rsa_pss_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
+{
+	int ret;
+	gnutls_datum_t tmp = {NULL, 0};
+	gnutls_x509_spki_st params;
+
+	memset(&params, 0, sizeof(params));
+
+	ret = _gnutls_x509_read_value(pkcs8_asn,
+				      "privateKeyAlgorithm.parameters", &tmp);
+	if (ret < 0) {
+		if (ret == GNUTLS_E_ASN1_VALUE_NOT_FOUND || ret == GNUTLS_E_ASN1_ELEMENT_NOT_FOUND)
+			goto skip_params;
+
+		gnutls_assert();
+		goto error;
+	}
+
+	ret = _gnutls_x509_read_rsa_pss_params(tmp.data, tmp.size, &params);
+	_gnutls_free_key_datum(&tmp);
+
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+
+ skip_params:
+	ret = _decode_pkcs8_rsa_key(pkcs8_asn, pkey);
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+
+	pkey->params.algo = GNUTLS_PK_RSA_PSS;
+	memcpy(&pkey->params.spki, &params, sizeof(gnutls_x509_spki_st));
 
 	ret = 0;
 
@@ -945,7 +1046,7 @@ static int
 _decode_pkcs8_ecc_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 {
 	int ret;
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
 	unsigned char oid[MAX_OID_SIZE];
 	unsigned curve = GNUTLS_ECC_CURVE_INVALID;
 	int len, result;
@@ -960,6 +1061,7 @@ _decode_pkcs8_ecc_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 	if (result == ASN1_SUCCESS) {
 		ret = _gnutls_x509_read_ecc_params(oid, len, &curve);
 		if (ret < 0) {
+			_gnutls_debug_log("PKCS#8: unknown curve OID %s\n", oid);
 			curve = GNUTLS_ECC_CURVE_INVALID;
 		}
 	}
@@ -984,13 +1086,238 @@ _decode_pkcs8_ecc_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 	return ret;
 }
 
+static int
+_decode_pkcs8_eddsa_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey, const char *oid)
+{
+	int ret;
+	gnutls_datum_t tmp;
+	gnutls_ecc_curve_t curve = GNUTLS_ECC_CURVE_INVALID;
+	const gnutls_ecc_curve_entry_st *ce;
+
+	gnutls_pk_params_init(&pkey->params);
+
+	curve = gnutls_oid_to_ecc_curve(oid);
+	if (curve == GNUTLS_ECC_CURVE_INVALID) {
+		_gnutls_debug_log("PKCS#8: unknown curve OID %s\n", oid);
+		return gnutls_assert_val(GNUTLS_E_ECC_UNSUPPORTED_CURVE);
+	}
+
+	ce = _gnutls_ecc_curve_get_params(curve);
+	if (_curve_is_eddsa(ce)) {
+		ret = _gnutls_x509_read_string(pkcs8_asn, "privateKey", &tmp, ASN1_ETYPE_OCTET_STRING, 1);
+		if (ret < 0) {
+			gnutls_assert();
+			return gnutls_assert_val(ret);
+		}
+
+		if (tmp.size != ce->size) {
+			gnutls_free(tmp.data);
+			return gnutls_assert_val(GNUTLS_E_ILLEGAL_PARAMETER);
+		}
+		gnutls_free(pkey->params.raw_priv.data);
+		switch (curve) {
+		case GNUTLS_ECC_CURVE_ED25519:
+			pkey->params.algo = GNUTLS_PK_EDDSA_ED25519;
+			break;
+		case GNUTLS_ECC_CURVE_ED448:
+			pkey->params.algo = GNUTLS_PK_EDDSA_ED448;
+			break;
+		default:
+			return gnutls_assert_val(GNUTLS_E_INTERNAL_ERROR);
+		}
+		pkey->params.raw_priv.data = tmp.data;
+		pkey->params.raw_priv.size = tmp.size;
+		pkey->params.curve = curve;
+
+		tmp.data = NULL;
+		return 0;
+	} else {
+		return gnutls_assert_val(GNUTLS_E_ECC_UNSUPPORTED_CURVE);
+	}
+}
+
+/* Converts a GOST key to
+ * an internal structure (gnutls_private_key)
+ */
+static int
+_privkey_decode_gost_key(const gnutls_datum_t * raw_key,
+			 gnutls_x509_privkey_t pkey)
+{
+	int ret;
+	int ecc_size = gnutls_ecc_curve_get_size(pkey->params.curve);
+
+	/* Just to be sure here */
+	if (ecc_size <= 0) {
+		gnutls_assert();
+		ret = GNUTLS_E_ECC_UNSUPPORTED_CURVE;
+		goto error;
+	}
+
+	/* Private key form described in R 50.1.112-2016.
+	 * Private key can come up as masked value concatenated with several masks.
+	 * each part is of ecc_size bytes. Key will be unmasked in pk_fixup */
+	if (raw_key->size % ecc_size == 0) {
+		ret = _gnutls_mpi_init_scan_le(&pkey->params.params[GOST_K],
+				raw_key->data, raw_key->size);
+		if (ret < 0) {
+			gnutls_assert();
+			goto error;
+		}
+	} else if (raw_key->data[0] == ASN1_TAG_INTEGER) {
+		ASN1_TYPE pkey_asn;
+
+		/* Very old format: INTEGER packed in OCTET STRING */
+		if ((ret = asn1_create_element(_gnutls_get_gnutls_asn(),
+					       "GNUTLS.GOSTPrivateKeyOld",
+					       &pkey_asn)) != ASN1_SUCCESS) {
+			gnutls_assert();
+			ret = _gnutls_asn2err(ret);
+			goto error;
+		}
+
+		ret = _asn1_strict_der_decode(&pkey_asn,
+				raw_key->data, raw_key->size,
+				NULL);
+		if (ret != ASN1_SUCCESS) {
+			gnutls_assert();
+			ret = _gnutls_asn2err(ret);
+			asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+			goto error;
+		}
+
+		ret = _gnutls_x509_read_key_int(pkey_asn, "",
+						&pkey->params.params[GOST_K]);
+		if (ret < 0) {
+			gnutls_assert();
+			asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+			goto error;
+		}
+		asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+	} else if (raw_key->data[0] == ASN1_TAG_OCTET_STRING) {
+		ASN1_TYPE pkey_asn;
+
+		/* format: OCTET STRING packed in OCTET STRING */
+		if ((ret = asn1_create_element(_gnutls_get_gnutls_asn(),
+					       "GNUTLS.GOSTPrivateKey",
+					       &pkey_asn)) != ASN1_SUCCESS) {
+			gnutls_assert();
+			ret = _gnutls_asn2err(ret);
+			goto error;
+		}
+
+		ret = _asn1_strict_der_decode(&pkey_asn,
+				raw_key->data, raw_key->size,
+				NULL);
+		if (ret != ASN1_SUCCESS) {
+			gnutls_assert();
+			ret = _gnutls_asn2err(ret);
+			asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+			goto error;
+		}
+
+		ret = _gnutls_x509_read_key_int_le(pkey_asn, "",
+						   &pkey->params.params[GOST_K]);
+		if (ret < 0) {
+			gnutls_assert();
+			asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+			goto error;
+		}
+		asn1_delete_structure2(&pkey_asn, ASN1_DELETE_FLAG_ZEROIZE);
+	} else {
+		gnutls_assert();
+		ret = GNUTLS_E_PARSING_ERROR;
+		goto error;
+	}
+
+	pkey->params.params_nr++;
+
+	return 0;
+
+      error:
+	return ret;
+
+}
+
+/* Decodes a GOST privateKey from a PKCS8 structure.
+ */
+static int
+_decode_pkcs8_gost_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey,
+		       gnutls_pk_algorithm_t algo)
+{
+	int ret;
+	gnutls_datum_t tmp;
+	unsigned char oid[3 * MAX_OID_SIZE]; /* GOST parameters can have 3 OIDs at most */
+	int len, result;
+
+	gnutls_pk_params_init(&pkey->params);
+
+	len = sizeof(oid);
+	result = asn1_read_value(pkcs8_asn, "privateKeyAlgorithm.parameters",
+				 oid, &len);
+	if (result != ASN1_SUCCESS) {
+		gnutls_assert();
+		ret = GNUTLS_E_PARSING_ERROR;
+		goto error;
+	} else {
+		ret = _gnutls_x509_read_gost_params(oid, len, &pkey->params, algo);
+		if (ret < 0) {
+			gnutls_assert();
+			goto error;
+		}
+	}
+
+	/* Will be fixed later by pk_fixup */
+	ret = _gnutls_mpi_init(&pkey->params.params[GOST_X]);
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+	pkey->params.params_nr++;
+
+	ret = _gnutls_mpi_init(&pkey->params.params[GOST_Y]);
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+	pkey->params.params_nr++;
+
+	_gnutls_mpi_set_ui(pkey->params.params[GOST_X], 0);
+	_gnutls_mpi_set_ui(pkey->params.params[GOST_Y], 0);
+
+	ret = _gnutls_x509_read_value(pkcs8_asn, "privateKey", &tmp);
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+
+	ret = _privkey_decode_gost_key(&tmp, pkey);
+	_gnutls_free_key_datum(&tmp);
+
+	if (ret < 0) {
+		gnutls_assert();
+		goto error;
+	}
+
+	pkey->params.algo = algo;
+
+	return 0;
+
+error:
+	gnutls_pk_params_clear(&pkey->params);
+	gnutls_pk_params_release(&pkey->params);
+
+	return ret;
+}
+
 /* Decodes an DSA privateKey and params from a PKCS8 structure.
  */
 static int
 _decode_pkcs8_dsa_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 {
 	int ret;
-	gnutls_datum_t tmp;
+	gnutls_datum_t tmp = {NULL, 0};
+
+	gnutls_pk_params_init(&pkey->params);
 
 	ret = _gnutls_x509_read_value(pkcs8_asn, "privateKey", &tmp);
 	if (ret < 0) {
@@ -1050,8 +1377,8 @@ _decode_pkcs8_dsa_key(ASN1_TYPE pkcs8_asn, gnutls_x509_privkey_t pkey)
 	pkey->params.params_nr = DSA_PRIVATE_PARAMS;
 
 	ret =
-	    _gnutls_asn1_encode_privkey(GNUTLS_PK_DSA, &pkey->key,
-					&pkey->params, pkey->flags&GNUTLS_PRIVKEY_FLAG_EXPORT_COMPAT);
+	    _gnutls_asn1_encode_privkey(&pkey->key,
+					&pkey->params);
 	if (ret < 0) {
 		gnutls_assert();
 		goto error;
@@ -1073,6 +1400,8 @@ decode_private_key_info(const gnutls_datum_t * der,
 	int result, len;
 	char oid[MAX_OID_SIZE];
 	ASN1_TYPE pkcs8_asn = ASN1_TYPE_EMPTY;
+	gnutls_datum_t sder;
+	int ret;
 
 	if ((result =
 	     asn1_create_element(_gnutls_get_pkix(),
@@ -1102,11 +1431,8 @@ decode_private_key_info(const gnutls_datum_t * der,
 		goto error;
 	}
 
-	/* we only support RSA and DSA private keys.
-	 */
-
-	pkey->pk_algorithm = gnutls_oid_to_pk(oid);
-	if (pkey->pk_algorithm == GNUTLS_PK_UNKNOWN) {
+	pkey->params.algo = gnutls_oid_to_pk(oid);
+	if (pkey->params.algo == GNUTLS_PK_UNKNOWN) {
 		gnutls_assert();
 		_gnutls_debug_log
 		    ("PKCS #8 private key OID '%s' is unsupported.\n",
@@ -1118,15 +1444,32 @@ decode_private_key_info(const gnutls_datum_t * der,
 	/* Get the DER encoding of the actual private key.
 	 */
 
-	if (pkey->pk_algorithm == GNUTLS_PK_RSA)
-		result = _decode_pkcs8_rsa_key(pkcs8_asn, pkey);
-	else if (pkey->pk_algorithm == GNUTLS_PK_DSA)
-		result = _decode_pkcs8_dsa_key(pkcs8_asn, pkey);
-	else if (pkey->pk_algorithm == GNUTLS_PK_EC)
-		result = _decode_pkcs8_ecc_key(pkcs8_asn, pkey);
-	else {
-		result = gnutls_assert_val(GNUTLS_E_UNIMPLEMENTED_FEATURE);
-		goto error;
+	switch(pkey->params.algo) {
+		case GNUTLS_PK_RSA:
+			result = _decode_pkcs8_rsa_key(pkcs8_asn, pkey);
+			break;
+		case GNUTLS_PK_RSA_PSS:
+			result = _decode_pkcs8_rsa_pss_key(pkcs8_asn, pkey);
+			break;
+		case GNUTLS_PK_DSA:
+			result = _decode_pkcs8_dsa_key(pkcs8_asn, pkey);
+			break;
+		case GNUTLS_PK_ECDSA:
+			result = _decode_pkcs8_ecc_key(pkcs8_asn, pkey);
+			break;
+		case GNUTLS_PK_EDDSA_ED25519:
+		case GNUTLS_PK_EDDSA_ED448:
+			result = _decode_pkcs8_eddsa_key(pkcs8_asn, pkey, oid);
+			break;
+		case GNUTLS_PK_GOST_01:
+		case GNUTLS_PK_GOST_12_256:
+		case GNUTLS_PK_GOST_12_512:
+			result = _decode_pkcs8_gost_key(pkcs8_asn,
+							pkey, pkey->params.algo);
+			break;
+		default:
+			result = gnutls_assert_val(GNUTLS_E_UNIMPLEMENTED_FEATURE);
+			goto error;
 	}
 
 	if (result < 0) {
@@ -1134,11 +1477,20 @@ decode_private_key_info(const gnutls_datum_t * der,
 		goto error;
 	}
 
+	/* check for provable parameters attribute */
+	ret = _x509_parse_attribute(pkcs8_asn, "attributes", OID_ATTR_PROV_SEED, 0, 1, &sder);
+	if (ret >= 0) { /* ignore it when not being present */
+		ret = _x509_decode_provable_seed(pkey, &sder);
+		gnutls_free(sder.data);
+		if (ret < 0) {
+			gnutls_assert();
+		}
+	}
+
 	result = 0;
 
 error:
 	asn1_delete_structure2(&pkcs8_asn, ASN1_DELETE_FLAG_ZEROIZE);
-
 	return result;
 
 }
@@ -1188,7 +1540,7 @@ gnutls_x509_privkey_import_pkcs8(gnutls_x509_privkey_t key,
 	_data.data = data->data;
 	_data.size = data->size;
 
-	key->pk_algorithm = GNUTLS_PK_UNKNOWN;
+	key->params.algo = GNUTLS_PK_UNKNOWN;
 
 	/* If the Certificate is in PEM format then decode it
 	 */
@@ -1239,8 +1591,10 @@ gnutls_x509_privkey_import_pkcs8(gnutls_x509_privkey_t key,
 		goto cleanup;
 	}
 
+	/* This part is necessary to get the public key on certain algorithms.
+	 * In the import above we only get the private key. */
 	result =
-	    _gnutls_pk_fixup(key->pk_algorithm, GNUTLS_IMPORT, &key->params);
+	    _gnutls_pk_fixup(key->params.algo, GNUTLS_IMPORT, &key->params);
 	if (result < 0) {
 		gnutls_assert();
 		goto cleanup;
@@ -1253,8 +1607,9 @@ gnutls_x509_privkey_import_pkcs8(gnutls_x509_privkey_t key,
 	 */
 	return 0;
 
-      cleanup:
-	key->pk_algorithm = GNUTLS_PK_UNKNOWN;
+ cleanup:
+	asn1_delete_structure2(&key->key, ASN1_DELETE_FLAG_ZEROIZE);
+	key->params.algo = GNUTLS_PK_UNKNOWN;
 	if (need_free)
 		_gnutls_free_datum(&_data);
 	return result;

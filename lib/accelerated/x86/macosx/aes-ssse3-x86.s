@@ -10,7 +10,6 @@
 #
 # *** This file is auto-generated ***
 #
-.file	"vpaes-x86.s"
 .text
 .align	6,0x90
 L_vpaes_consts:

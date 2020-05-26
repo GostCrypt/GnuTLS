@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2003-2016 Free Software Foundation, Inc.
- * Copyright (C) 2016 Red Hat, Inc.
+ * Copyright (C) 2016-2017 Red Hat, Inc.
  *
  * Author: Nikos Mavrogiannopoulos
  *
@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -35,6 +35,7 @@
 #include <x509_b64.h>
 #include "x509_int.h"
 #include <libtasn1.h>
+#include <pk.h>
 
 static void disable_optional_stuff(gnutls_x509_crt_t cert);
 
@@ -238,7 +239,6 @@ gnutls_x509_crt_set_key(gnutls_x509_crt_t crt, gnutls_x509_privkey_t key)
 
 	result = _gnutls_x509_encode_and_copy_PKI_params(crt->cert,
 							 "tbsCertificate.subjectPublicKeyInfo",
-							 key->pk_algorithm,
 							 &key->params);
 
 	if (result < 0) {
@@ -1113,6 +1113,9 @@ gnutls_x509_crt_set_private_key_usage_period(gnutls_x509_crt_t crt,
  * be fully functional (e.g., for signature verification), until it
  * is exported an re-imported.
  *
+ * After GnuTLS 3.6.1 the value of @dig may be %GNUTLS_DIG_UNKNOWN,
+ * and in that case, a suitable but reasonable for the key algorithm will be selected.
+ *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
  **/
@@ -1165,7 +1168,9 @@ gnutls_x509_crt_sign2(gnutls_x509_crt_t crt, gnutls_x509_crt_t issuer,
  * @issuer_key: holds the issuer's private key
  *
  * This function is the same a gnutls_x509_crt_sign2() with no flags,
- * and SHA1 as the hash algorithm.
+ * and an appropriate hash algorithm. The hash algorithm used may
+ * vary between versions of GnuTLS, and it is tied to the security
+ * level of the issuer's public key.
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
@@ -1175,7 +1180,7 @@ gnutls_x509_crt_sign(gnutls_x509_crt_t crt, gnutls_x509_crt_t issuer,
 		     gnutls_x509_privkey_t issuer_key)
 {
 	return gnutls_x509_crt_sign2(crt, issuer, issuer_key,
-				     GNUTLS_DIG_SHA1, 0);
+				     0, 0);
 }
 
 /**
@@ -1183,7 +1188,7 @@ gnutls_x509_crt_sign(gnutls_x509_crt_t crt, gnutls_x509_crt_t issuer,
  * @cert: a certificate of type #gnutls_x509_crt_t
  * @act_time: The actual time
  *
- * This function will set the time this Certificate was or will be
+ * This function will set the time this certificate was or will be
  * activated.
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
@@ -1211,8 +1216,8 @@ gnutls_x509_crt_set_activation_time(gnutls_x509_crt_t cert,
  * @exp_time: The actual time
  *
  * This function will set the time this Certificate will expire.
- * Setting an expiration time to (time_t)-1 or to %GNUTLS_X509_NO_WELL_DEFINED_EXPIRATION
- * will set to the no well-defined expiration date value. 
+ * Setting an expiration time to (time_t)-1 will set
+ * to the no well-defined expiration date value.
  *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
@@ -1785,6 +1790,9 @@ gnutls_x509_crt_set_key_purpose_oid(gnutls_x509_crt_t cert,
  * be fully functional (e.g., for signature verification), until it
  * is exported an re-imported.
  *
+ * After GnuTLS 3.6.1 the value of @dig may be %GNUTLS_DIG_UNKNOWN,
+ * and in that case, a suitable but reasonable for the key algorithm will be selected.
+ *
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
  *   negative error value.
  **/
@@ -1802,6 +1810,12 @@ gnutls_x509_crt_privkey_sign(gnutls_x509_crt_t crt,
 		return GNUTLS_E_INVALID_REQUEST;
 	}
 
+	if (dig == 0) {
+		result = gnutls_x509_crt_get_preferred_hash_algorithm(issuer, &dig, NULL);
+		if (result < 0)
+			return gnutls_assert_val(result);
+	}
+
 	MODIFIED(crt);
 
 	/* disable all the unneeded OPTIONAL fields.
@@ -1815,7 +1829,7 @@ gnutls_x509_crt_privkey_sign(gnutls_x509_crt_t crt,
 	}
 
 	result = _gnutls_x509_pkix_sign(crt->cert, "tbsCertificate",
-					dig, issuer, issuer_key);
+					dig, flags, issuer, issuer_key);
 	if (result < 0) {
 		gnutls_assert();
 		return result;
@@ -1989,3 +2003,123 @@ gnutls_x509_crt_set_policy(gnutls_x509_crt_t crt,
 	return ret;
 }
 
+/**
+ * gnutls_x509_crt_set_spki:
+ * @crt: a certificate of type #gnutls_x509_crt_t
+ * @spki: a SubjectPublicKeyInfo structure of type #gnutls_x509_spki_t
+ * @flags: must be zero
+ *
+ * This function will set the certificate's subject public key
+ * information explicitly. This is intended to be used in the cases
+ * where a single public key (e.g., RSA) can be used for multiple
+ * signature algorithms (RSA PKCS1-1.5, and RSA-PSS).
+ *
+ * To export the public key (i.e., the SubjectPublicKeyInfo part), check
+ * gnutls_pubkey_import_x509().
+ *
+ * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, otherwise a
+ *   negative error value.
+ *
+ * Since: 3.6.0
+ **/
+int
+gnutls_x509_crt_set_spki(gnutls_x509_crt_t crt,
+			 const gnutls_x509_spki_t spki,
+			 unsigned int flags)
+{
+	int ret;
+	gnutls_pk_algorithm_t crt_pk;
+	gnutls_x509_spki_st tpki;
+	gnutls_pk_params_st params;
+	unsigned bits;
+
+	if (crt == NULL) {
+		gnutls_assert();
+		return GNUTLS_E_INVALID_REQUEST;
+	}
+
+	ret = _gnutls_x509_crt_get_mpis(crt, &params);
+	if (ret < 0) {
+		gnutls_assert();
+		return ret;
+	}
+
+	bits = pubkey_to_bits(&params);
+	crt_pk = params.algo;
+
+	if (!_gnutls_pk_are_compat(crt_pk, spki->pk)) {
+		ret = gnutls_assert_val(GNUTLS_E_INVALID_REQUEST);
+		goto cleanup;
+	}
+
+	if (spki->pk != GNUTLS_PK_RSA_PSS) {
+		if (crt_pk == spki->pk) {
+			ret = 0;
+			goto cleanup;
+		}
+
+		gnutls_assert();
+		ret = GNUTLS_E_INVALID_REQUEST;
+		goto cleanup;
+	}
+
+	memset(&tpki, 0, sizeof(gnutls_x509_spki_st));
+
+	if (crt_pk == GNUTLS_PK_RSA) {
+		const mac_entry_st *me;
+
+		me = hash_to_entry(spki->rsa_pss_dig);
+		if (unlikely(me == NULL)) {
+			gnutls_assert();
+			ret = GNUTLS_E_INVALID_REQUEST;
+			goto cleanup;
+		}
+
+		tpki.pk = spki->pk;
+		tpki.rsa_pss_dig = spki->rsa_pss_dig;
+
+		/* If salt size is zero, find the optimal salt size. */
+		if (spki->salt_size == 0) {
+			ret = _gnutls_find_rsa_pss_salt_size(bits, me,
+							   spki->salt_size);
+			if (ret < 0) {
+				gnutls_assert();
+				goto cleanup;
+			}
+			tpki.salt_size = ret;
+		} else
+			tpki.salt_size = spki->salt_size;
+	} else if (crt_pk == GNUTLS_PK_RSA_PSS) {
+		ret = _gnutls_x509_crt_read_spki_params(crt, &tpki);
+		if (ret < 0) {
+			gnutls_assert();
+			goto cleanup;
+		}
+
+		tpki.salt_size = spki->salt_size;
+		tpki.rsa_pss_dig = spki->rsa_pss_dig;
+	}
+
+	memcpy(&params.spki, &tpki, sizeof(tpki));
+	ret = _gnutls_x509_check_pubkey_params(&params);
+	if (ret < 0) {
+		gnutls_assert();
+		goto cleanup;
+	}
+
+	MODIFIED(crt);
+
+	ret = _gnutls_x509_write_spki_params(crt->cert,
+						"tbsCertificate."
+						"subjectPublicKeyInfo.algorithm",
+						&tpki);
+	if (ret < 0) {
+		gnutls_assert();
+		goto cleanup;
+	}
+
+	ret = 0;
+ cleanup:
+	gnutls_pk_params_release(&params);
+	return ret;
+}

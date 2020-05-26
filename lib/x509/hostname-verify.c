@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -26,6 +26,8 @@
 #include <common.h>
 #include "errors.h"
 #include <system.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 /**
  * gnutls_x509_crt_check_hostname:
@@ -81,13 +83,6 @@ check_ip(gnutls_x509_crt_t cert, const void *ip, unsigned ip_size)
 
 	/* not found a matching IP
 	 */
-	return 0;
-}
-
-static int has_embedded_null(const char *str, unsigned size)
-{
-	if (strlen(str) != size)
-		return 1;
 	return 0;
 }
 
@@ -170,7 +165,7 @@ gnutls_x509_crt_check_hostname2(gnutls_x509_crt_t cert,
 
 	/* check whether @hostname is an ip address */
 	if (!(flags & GNUTLS_VERIFY_DO_NOT_ALLOW_IP_MATCHES) &&
-	    ((p=strchr(hostname, ':')) != NULL || inet_aton(hostname, &ipv4) != 0)) {
+	    ((p=strchr(hostname, ':')) != NULL || inet_pton(AF_INET, hostname, &ipv4) != 0)) {
 
 		if (p != NULL) {
 			struct in6_addr ipv6;
@@ -225,7 +220,7 @@ gnutls_x509_crt_check_hostname2(gnutls_x509_crt_t cert,
 		if (ret == GNUTLS_SAN_DNSNAME) {
 			found_dnsname = 1;
 
-			if (has_embedded_null(dnsname, dnsnamesize)) {
+			if (_gnutls_has_embedded_null(dnsname, dnsnamesize)) {
 				_gnutls_debug_log("certificate has %s with embedded null in name\n", dnsname);
 				continue;
 			}
@@ -273,7 +268,7 @@ gnutls_x509_crt_check_hostname2(gnutls_x509_crt_t cert,
 			goto cleanup;
 		}
 
-		if (has_embedded_null(dnsname, dnsnamesize)) {
+		if (_gnutls_has_embedded_null(dnsname, dnsnamesize)) {
 			_gnutls_debug_log("certificate has CN %s with embedded null in name\n", dnsname);
 			ret = 0;
 			goto cleanup;

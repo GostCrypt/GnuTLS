@@ -39,19 +39,19 @@
 
 static unsigned char saved_crt_pem[] =
 	"-----BEGIN CERTIFICATE-----\n"
-	"MIICWTCCAcKgAwIBAgIDChEAMA0GCSqGSIb3DQEBCwUAMCsxDjAMBgNVBAMTBW5p\n"
+	"MIICWjCCAcOgAwIBAgIDChEAMA0GCSqGSIb3DQEBCwUAMCsxDjAMBgNVBAMTBW5p\n"
 	"a29zMRkwFwYDVQQKExBub25lIHRvLCBtZW50aW9uMCAXDTA4MDMzMTIyMDAwMFoY\n"
 	"Dzk5OTkxMjMxMjM1OTU5WjArMQ4wDAYDVQQDEwVuaWtvczEZMBcGA1UEChMQbm9u\n"
 	"ZSB0bywgbWVudGlvbjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAu2ZD9fLF\n"
 	"17aMzMXf9Yg7sclLag6hrSBQQAiAoU9co9D4bM/mPPfsBHYTF4tkiSJbwN1TfDvt\n"
 	"fAS7gLkovo6bxo6gpRLL9Vceoue7tzNJn+O7Sq5qTWj/yRHiMo3OPYALjXXv2ACB\n"
-	"jygEA6AijWEEB/q2N30hB0nSCWFpmJCjWKkCAwEAAYEFAAABAgOCBQAEAwIBo3sw\n"
-	"eTAMBgNVHRMBAf8EAjAAMA8GA1UdDwEB/wQFAwMHgAAwNgYDVR0RBC8wLYIDYXBh\n"
-	"ghF4bi0tbXhhYTRhczZkLmNvbYETdGVzdEB4bi0ta3hhd2hrLm9yZzAgBgNVHSUB\n"
-	"Af8EFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDQYJKoZIhvcNAQELBQADgYEAsCHT\n"
-	"vpIFkQG8th0DbEU3BE3KP5aa93HDLpZPu5PVLkoBb4PPWjKPK+737mwaSs9zXe58\n"
-	"awhM0ycZ1ymSC+MiRuQlzt4Opx1Fm8WFsDr7d0g/C96Arr1Ss4ZhNi15nyoYeaWJ\n"
-	"1n7nX+msWnuc+aABt1d8aAhAvaU8do0+WI2jY90=\n"
+	"jygEA6AijWEEB/q2N30hB0nSCWFpmJCjWKkCAwEAAYEFAAABAgOCBQAEAwIBo3ww\n"
+	"ejAMBgNVHRMBAf8EAjAAMA8GA1UdDwEB/wQFAwMHgAAwNwYDVR0RBDAwLogEKgME\n"
+	"BYIReG4tLW14YWE0YXM2ZC5jb22BE3Rlc3RAeG4tLWt4YXdoay5vcmcwIAYDVR0l\n"
+	"AQH/BBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMA0GCSqGSIb3DQEBCwUAA4GBADzP\n"
+	"piA0s50R+oM/OWcHrARRMFhmOv8oj4mQeXjePCUJub8CDj1XnZwseIY9K9IU6Lxm\n"
+	"43p7kw1jFzPRBJyuZC5X92AdG1meR1RKd91M3VEvn2cgfesX7/MbhZIYJ8ZD2S1L\n"
+	"rqzVabXTZjKdHT727mCJdqzjDh7CFmb9Q2ZU6jDR\n"
 	"-----END CERTIFICATE-----\n";
 
 const gnutls_datum_t saved_crt = { saved_crt_pem, sizeof(saved_crt_pem)-1 };
@@ -71,6 +71,8 @@ static time_t mytime(time_t * t)
 	return then;
 }
 
+#define REGISTERED_OID "1.2.3.4.5"
+
 void doit(void)
 {
 	gnutls_x509_privkey_t pkey;
@@ -78,8 +80,10 @@ void doit(void)
 	gnutls_x509_crt_t crt2;
 	const char *err = NULL;
 	unsigned char buf[64];
+	unsigned char large_buf[5*1024];
+	unsigned int status, san_type;
 	gnutls_datum_t out;
-	size_t s = 0;
+	size_t s = 0, i;
 	int ret;
 
 	ret = global_init();
@@ -176,6 +180,11 @@ void doit(void)
 
 	ret = gnutls_x509_crt_set_subject_alt_name(crt, GNUTLS_SAN_DNSNAME,
 						   "apa", 3, 0);
+	if (ret != 0)
+		fail("gnutls_x509_crt_set_subject_alt_name\n");
+
+	ret = gnutls_x509_crt_set_subject_alt_name(crt, GNUTLS_SAN_REGISTERED_ID,
+						   REGISTERED_OID, strlen(REGISTERED_OID), 0);
 	if (ret != 0)
 		fail("gnutls_x509_crt_set_subject_alt_name\n");
 
@@ -311,6 +320,16 @@ void doit(void)
 	if (ret != 0) {
 		fail("equality test failed\n");
 	}
+
+	ret = gnutls_x509_crt_verify(crt, &crt, 1, 0, &status);
+	if (ret < 0) {
+		fail("verification failed\n");
+	}
+
+	if (status != 0) {
+		fail("verification status failed\n");
+	}
+
 	assert(gnutls_x509_crt_export2(crt, GNUTLS_X509_FMT_PEM, &out) >= 0);
 
 	if (debug)
@@ -319,6 +338,51 @@ void doit(void)
 	assert(out.size == saved_crt.size);
 	assert(memcmp(out.data, saved_crt.data, out.size)==0);
 #endif
+
+	/* test behavior of gnutls_x509_crt_export on varios corner cases */
+	s = 0;
+	assert(gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_PEM, NULL, &s) == GNUTLS_E_SHORT_MEMORY_BUFFER);
+	assert(s == out.size+1);
+	s = sizeof(buf);
+	assert(gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_PEM, buf, &s) == GNUTLS_E_SHORT_MEMORY_BUFFER);
+	assert(s == out.size+1);
+
+	/* check whether the PEM output matches gnutls_x509_crt_export2 */
+	s = sizeof(large_buf);
+	assert(gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_PEM, large_buf, &s) == 0);
+	assert(s == out.size);
+	assert(memcmp(large_buf, out.data, out.size) == 0);
+	gnutls_free(out.data);
+
+	/* check whether the der out length differs */
+	s = sizeof(large_buf);
+	assert(gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_DER, large_buf, &s) == 0);
+	assert(gnutls_x509_crt_export2(crt, GNUTLS_X509_FMT_DER, &out) >= 0);
+
+	assert(s == out.size);
+	assert(memcmp(large_buf, out.data, out.size) == 0);
+
+	/* verify some values written in the original cert */
+	gnutls_x509_crt_deinit(crt2);
+	ret = gnutls_x509_crt_init(&crt2);
+	if (ret != 0)
+		fail("gnutls_x509_crt_init\n");
+
+	ret = gnutls_x509_crt_import(crt2, &out, GNUTLS_X509_FMT_DER);
+	if (ret != 0)
+		fail("gnutls_x509_crt_import\n");
+
+	i = 0;
+	do {
+		s = sizeof(buf);
+		ret = gnutls_x509_crt_get_subject_alt_name2(crt2, i++, buf, &s, &san_type, NULL);
+		if (ret < 0)
+			fail("gnutls_x509_crt_get_subject_alt_name2: %s\n", gnutls_strerror(ret));
+	} while (san_type != GNUTLS_SAN_REGISTERED_ID);
+
+	assert(san_type == GNUTLS_SAN_REGISTERED_ID);
+	assert(s == strlen(REGISTERED_OID));
+	assert(memcmp(buf, REGISTERED_OID, s) == 0);
 
 	gnutls_free(out.data);
 

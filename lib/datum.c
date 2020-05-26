@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -30,6 +30,7 @@
 #include <datum.h>
 #include "errors.h"
 
+/* On error, @dat is not changed. */
 int
 _gnutls_set_datum(gnutls_datum_t * dat, const void *data, size_t data_size)
 {
@@ -39,10 +40,11 @@ _gnutls_set_datum(gnutls_datum_t * dat, const void *data, size_t data_size)
 		return 0;
 	}
 
-	dat->data = gnutls_malloc(data_size);
-	if (dat->data == NULL)
+	unsigned char *m = gnutls_malloc(data_size);
+	if (!m)
 		return GNUTLS_E_MEMORY_ERROR;
 
+	dat->data = m;
 	dat->size = data_size;
 	memcpy(dat->data, data, data_size);
 
@@ -51,38 +53,23 @@ _gnutls_set_datum(gnutls_datum_t * dat, const void *data, size_t data_size)
 
 /* ensures that the data set are null-terminated
  * The function always returns an allocated string in @dat on success.
+ * On error, @dat is not changed.
  */
 int
 _gnutls_set_strdatum(gnutls_datum_t * dat, const void *data, size_t data_size)
 {
-	if (data_size == 0 || data == NULL) {
-		dat->data = gnutls_calloc(1, 1);
-		dat->size = 0;
-		return 0;
-	}
+	if (data == NULL)
+		return gnutls_assert_val(GNUTLS_E_ILLEGAL_PARAMETER);
 
-	dat->data = gnutls_malloc(data_size+1);
-	if (dat->data == NULL)
+	unsigned char *m = gnutls_malloc(data_size + 1);
+	if (!m)
 		return GNUTLS_E_MEMORY_ERROR;
 
+	dat->data = m;
 	dat->size = data_size;
-	memcpy(dat->data, data, data_size);
+	if (data_size)
+		memcpy(dat->data, data, data_size);
 	dat->data[data_size] = 0;
-
-	return 0;
-}
-
-int
-_gnutls_datum_append(gnutls_datum_t * dst, const void *data,
-		     size_t data_size)
-{
-
-	dst->data = gnutls_realloc_fast(dst->data, data_size + dst->size);
-	if (dst->data == NULL)
-		return GNUTLS_E_MEMORY_ERROR;
-
-	memcpy(&dst->data[dst->size], data, data_size);
-	dst->size += data_size;
 
 	return 0;
 }

@@ -17,9 +17,12 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
+
+#ifndef GNUTLS_LIB_NETTLE_RND_COMMON_H
+#define GNUTLS_LIB_NETTLE_RND_COMMON_H
 
 #include "gnutls_int.h"
 #ifdef HAVE_GETPID
@@ -39,3 +42,5 @@ typedef int (*get_entropy_func)(void* rnd, size_t size);
 
 extern get_entropy_func _rnd_get_system_entropy;
 
+
+#endif /* GNUTLS_LIB_NETTLE_RND_COMMON_H */

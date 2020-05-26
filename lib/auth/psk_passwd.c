@@ -16,15 +16,13 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
 /* Functions for operating in an PSK passwd file are included here */
 
 #include "gnutls_int.h"
-
-#ifdef ENABLE_PSK
 
 #include "x509_b64.h"
 #include "errors.h"
@@ -75,7 +73,52 @@ static int pwd_put_values(gnutls_datum_t * psk, char *str)
 	}
 
 	return 0;
+}
 
+static bool username_matches(const gnutls_datum_t *username,
+			     const char *line, size_t line_size)
+{
+	int retval;
+	unsigned i;
+	gnutls_datum_t hexline, hex_username = { NULL, 0 };
+
+	/*
+	 * Guard against weird behavior - we don't check 'line',
+	 * as it's returned by getline(), which will never return NULL
+	 * if successful.
+	 */
+	if (username->data == NULL)
+		return false;
+
+	if (line_size == 0)
+		return (username->size == 0);
+
+	/* move to first ':' */
+	i = 0;
+	while ((i < line_size) && (line[i] != '\0')
+	       && (line[i] != ':')) {
+		i++;
+	}
+
+	/* if format is in hex, e.g. #FAFAFA */
+	if (line[0] == '#' && line_size > 1) {
+		hexline.data = (void *) &line[1];
+		hexline.size = i - 1;
+
+		if ((retval = gnutls_hex_decode2(&hexline, &hex_username)) < 0)
+			return gnutls_assert_val(0);
+
+		if (hex_username.size == username->size)
+			retval = memcmp(username->data, hex_username.data, username->size);
+		else
+			retval = -1;
+
+		_gnutls_free_datum(&hex_username);
+	} else {
+		retval = strncmp((const char *) username->data, line, MAX(i, username->size));
+	}
+
+	return (retval == 0);
 }
 
 
@@ -107,15 +150,19 @@ static int _randomize_psk(gnutls_datum_t * psk)
  * If the user doesn't exist a random password is returned instead.
  */
 int
-_gnutls_psk_pwd_find_entry(gnutls_session_t session, char *username,
+_gnutls_psk_pwd_find_entry(gnutls_session_t session,
+			   const char *username, uint16_t username_len,
 			   gnutls_datum_t * psk)
 {
 	gnutls_psk_server_credentials_t cred;
 	FILE *fd;
 	char *line = NULL;
 	size_t line_size = 0;
-	unsigned i, len;
 	int ret;
+	gnutls_datum_t username_datum = {
+		.data = (unsigned char *) username,
+		.size = username_len
+	};
 
 	cred = (gnutls_psk_server_credentials_t)
 	    _gnutls_get_cred(session, GNUTLS_CRD_PSK);
@@ -128,7 +175,7 @@ _gnutls_psk_pwd_find_entry(gnutls_session_t session, char *username,
 	 * set, use it.
 	 */
 	if (cred->pwd_callback != NULL) {
-		ret = cred->pwd_callback(session, username, psk);
+		ret = cred->pwd_callback(session, &username_datum, psk);
 
 		if (ret == 1) {	/* the user does not exist */
 			ret = _randomize_psk(psk);
@@ -162,16 +209,8 @@ _gnutls_psk_pwd_find_entry(gnutls_session_t session, char *username,
 		return GNUTLS_E_SRP_PWD_ERROR;
 	}
 
-	len = strlen(username);
 	while (getline(&line, &line_size, fd) > 0) {
-		/* move to first ':' */
-		i = 0;
-		while ((i < line_size) && (line[i] != '\0')
-		       && (line[i] != ':')) {
-			i++;
-		}
-
-		if (strncmp(username, line, MAX(i, len)) == 0) {
+		if (username_matches(&username_datum, line, line_size)) {
 			ret = pwd_put_values(psk, line);
 			if (ret < 0) {
 				gnutls_assert();
@@ -202,5 +241,33 @@ cleanup:
 
 }
 
+/* returns the username and they key for the PSK session.
+ * Free is non (0) if they have to be freed.
+ */
+int _gnutls_find_psk_key(gnutls_session_t session,
+			 gnutls_psk_client_credentials_t cred,
+			 gnutls_datum_t * username, gnutls_datum_t * key,
+			 int *free)
+{
+	int ret;
 
-#endif				/* ENABLE PSK */
+	*free = 0;
+
+	if (cred->username.data != NULL && cred->key.data != NULL) {
+		username->data = cred->username.data;
+		username->size = cred->username.size;
+		key->data = cred->key.data;
+		key->size = cred->key.size;
+	} else if (cred->get_function != NULL) {
+		ret = cred->get_function(session, username, key);
+
+		if (ret)
+			return gnutls_assert_val(ret);
+
+		*free = 1;
+	} else
+		return
+		    gnutls_assert_val(GNUTLS_E_INSUFFICIENT_CREDENTIALS);
+
+	return 0;
+}

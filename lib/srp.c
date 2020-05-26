@@ -17,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -459,10 +459,11 @@ gnutls_srp_allocate_client_credentials(gnutls_srp_client_credentials_t *
  *
  * This function sets the username and password, in a
  * #gnutls_srp_client_credentials_t type.  Those will be used in
- * SRP authentication.  @username and @password should be ASCII
- * strings or UTF-8 strings prepared using the "SASLprep" profile of
- * "stringprep".
- *
+ * SRP authentication.  @username should be an ASCII string or UTF-8
+ * string. In case of a UTF-8 string it is recommended to be following
+ * the PRECIS framework for usernames (rfc8265). The password can
+ * be in ASCII format, or normalized using gnutls_utf8_password_normalize().
+
  * Returns: On success, %GNUTLS_E_SUCCESS (0) is returned, or an
  *   error code.
  **/
@@ -500,7 +501,6 @@ void gnutls_srp_free_server_credentials(gnutls_srp_server_credentials_t sc)
 {
 	gnutls_free(sc->password_file);
 	gnutls_free(sc->password_conf_file);
-	_gnutls_free_datum(&sc->fake_salt_seed);
 
 	gnutls_free(sc);
 }
@@ -536,17 +536,9 @@ gnutls_srp_allocate_server_credentials(gnutls_srp_server_credentials_t *
 	if (*sc == NULL)
 		return GNUTLS_E_MEMORY_ERROR;
 
-	(*sc)->fake_salt_seed.size = DEFAULT_FAKE_SALT_SEED_SIZE;
-	(*sc)->fake_salt_seed.data = gnutls_malloc(
-					DEFAULT_FAKE_SALT_SEED_SIZE);
-	if ((*sc)->fake_salt_seed.data == NULL) {
-		ret = GNUTLS_E_MEMORY_ERROR;
-		gnutls_assert();
-		goto cleanup;
-	}
-
-	ret = gnutls_rnd(GNUTLS_RND_RANDOM, (*sc)->fake_salt_seed.data,
-				DEFAULT_FAKE_SALT_SEED_SIZE);
+	(*sc)->fake_salt_seed_size = DEFAULT_FAKE_SALT_SEED_SIZE;
+	ret = gnutls_rnd(GNUTLS_RND_RANDOM, (*sc)->fake_salt_seed,
+			 DEFAULT_FAKE_SALT_SEED_SIZE);
 
 	if (ret < 0) {
 		gnutls_assert();
@@ -557,7 +549,6 @@ gnutls_srp_allocate_server_credentials(gnutls_srp_server_credentials_t *
 	return 0;
 
 cleanup:
-	_gnutls_free_datum(&(*sc)->fake_salt_seed);
 	gnutls_free(*sc);
 	return ret;
 }
@@ -608,7 +599,6 @@ gnutls_srp_set_server_credentials_file(gnutls_srp_server_credentials_t res,
 	if (res->password_conf_file == NULL) {
 		gnutls_assert();
 		gnutls_free(res->password_file);
-		res->password_file = NULL;
 		return GNUTLS_E_MEMORY_ERROR;
 	}
 
@@ -671,9 +661,12 @@ gnutls_srp_set_server_credentials_function(gnutls_srp_server_credentials_t
  * int (*callback)(gnutls_session_t, char** username, char**password);
  *
  * The @username and @password must be allocated using
- * gnutls_malloc().  @username and @password should be ASCII strings
- * or UTF-8 strings prepared using the "SASLprep" profile of
- * "stringprep".
+ * gnutls_malloc().
+ *
+ * The @username should be an ASCII string or UTF-8
+ * string. In case of a UTF-8 string it is recommended to be following
+ * the PRECIS framework for usernames (rfc8265). The password can
+ * be in ASCII format, or normalized using gnutls_utf8_password_normalize().
  *
  * The callback function will be called once per handshake before the
  * initial hello message is sent.
@@ -708,7 +701,7 @@ const char *gnutls_srp_server_get_username(gnutls_session_t session)
 {
 	srp_server_auth_info_t info;
 
-	CHECK_AUTH(GNUTLS_CRD_SRP, NULL);
+	CHECK_AUTH_TYPE(GNUTLS_CRD_SRP, NULL);
 
 	info = _gnutls_get_auth_info(session, GNUTLS_CRD_SRP);
 	if (info == NULL)
@@ -762,15 +755,21 @@ gnutls_srp_verifier(const char *username, const char *password,
 	size = generator->size;
 	if (_gnutls_mpi_init_scan_nz(&_g, generator->data, size)) {
 		gnutls_assert();
+		_gnutls_mpi_release(&_n);
 		return GNUTLS_E_MPI_SCAN_FAILED;
 	}
 
 	ret = _gnutls_srp_gx(digest, 20, &res->data, _g, _n);
 	if (ret < 0) {
 		gnutls_assert();
+		_gnutls_mpi_release(&_n);
+		_gnutls_mpi_release(&_g);
 		return ret;
 	}
 	res->size = ret;
+
+	_gnutls_mpi_release(&_n);
+	_gnutls_mpi_release(&_g);
 
 	return 0;
 }
@@ -794,7 +793,7 @@ gnutls_srp_verifier(const char *username, const char *password,
  **/
 void gnutls_srp_set_prime_bits(gnutls_session_t session, unsigned int bits)
 {
-	session->internals.srp_prime_bits = bits;
+	session->internals.dh_prime_bits = bits;
 }
 
 /**
@@ -832,8 +831,14 @@ gnutls_srp_set_server_fake_salt_seed(gnutls_srp_server_credentials_t cred,
 				     const gnutls_datum_t * seed,
 				     unsigned int salt_length)
 {
-	_gnutls_free_datum(&cred->fake_salt_seed);
-	_gnutls_set_datum(&cred->fake_salt_seed, seed->data, seed->size);
+	unsigned seed_size = seed->size;
+	const unsigned char *seed_data = seed->data;
+
+	if (seed_size > sizeof(cred->fake_salt_seed))
+		seed_size = sizeof(cred->fake_salt_seed);
+
+	memcpy(cred->fake_salt_seed, seed_data, seed_size);
+	cred->fake_salt_seed_size = seed_size;
 
 	/* Cap the salt length at the output size of the MAC algorithm
 	 * we are using to generate the fake salts.

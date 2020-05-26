@@ -18,7 +18,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see
- * <http://www.gnu.org/licenses/>.
+ * <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -202,6 +202,17 @@ static void cmd_parser(int argc, char **argv)
 
 	memset(&cinfo, 0, sizeof(cinfo));
 
+	if (HAVE_OPT(HASH)) {
+		cinfo.hash = hash_to_id(OPT_ARG(HASH));
+		if (cinfo.hash == GNUTLS_DIG_UNKNOWN) {
+			fprintf(stderr, "invalid hash: %s\n", OPT_ARG(HASH));
+			app_exit(1);
+		}
+	}
+
+	if (HAVE_OPT(SIGN_PARAMS))
+		sign_params_to_flags(&cinfo, OPT_ARG(SIGN_PARAMS));
+
 	if (HAVE_OPT(SECRET_KEY))
 		cinfo.secret_key = OPT_ARG(SECRET_KEY);
 
@@ -216,7 +227,7 @@ static void cmd_parser(int argc, char **argv)
 	}
 
 	if (HAVE_OPT(ONLY_URLS)) {
-		batch = cinfo.only_urls = 1;
+		cinfo.only_urls = 1;
 	}
 
 	if (ENABLED_OPT(INDER) || ENABLED_OPT(INRAW))
@@ -317,12 +328,20 @@ static void cmd_parser(int argc, char **argv)
 	} else if (HAVE_OPT(INITIALIZE)) {
 		pkcs11_init(outfile, url, label, &cinfo);
 	} else if (HAVE_OPT(INITIALIZE_PIN)) {
-		pkcs11_set_pin(outfile, url, &cinfo, 0);
+		pkcs11_set_token_pin(outfile, url, &cinfo, 0);
 	} else if (HAVE_OPT(INITIALIZE_SO_PIN)) {
-		pkcs11_set_pin(outfile, url, &cinfo, 1);
-	} else if (HAVE_OPT(DELETE))
+		pkcs11_set_token_pin(outfile, url, &cinfo, 1);
+	} else if (HAVE_OPT(DELETE)) {
 		pkcs11_delete(outfile, url, flags, &cinfo);
-	else if (HAVE_OPT(GENERATE_ECC)) {
+	} else if (HAVE_OPT(GENERATE_PRIVKEY)) {
+		key_type = figure_key_type(OPT_ARG(GENERATE_PRIVKEY));
+		if (key_type == GNUTLS_PK_UNKNOWN)
+			app_exit(1);
+		pkcs11_generate(outfile, url, key_type,
+				get_bits(key_type, bits, sec_param, 0),
+				label, id, detailed_url,
+				flags, &cinfo);
+	} else if (HAVE_OPT(GENERATE_ECC)) {
 		key_type = GNUTLS_PK_EC;
 		pkcs11_generate(outfile, url, key_type,
 				get_bits(key_type, bits, sec_param, 0),

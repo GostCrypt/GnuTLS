@@ -18,7 +18,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -38,6 +38,7 @@
 #include <common.h>
 #include <pk.h>
 #include "supported_exts.h"
+#include "profiles.h"
 
 /* Checks if two certs have the same name and the same key.  Return 1 on match. 
  * If @is_ca is zero then this function is identical to gnutls_x509_crt_equals()
@@ -387,7 +388,7 @@ static unsigned int check_time_status(gnutls_x509_crt_t crt, time_t now)
 	return 0;
 }
 
-unsigned _gnutls_is_broken_sig_allowed(gnutls_sign_algorithm_t sig, unsigned int flags)
+unsigned _gnutls_is_broken_sig_allowed(const gnutls_sign_entry_st *se, unsigned int flags)
 {
 	gnutls_digest_algorithm_t hash;
 
@@ -396,14 +397,14 @@ unsigned _gnutls_is_broken_sig_allowed(gnutls_sign_algorithm_t sig, unsigned int
 		return 1;
 
 	/* the first two are for backwards compatibility */
-	if ((sig == GNUTLS_SIGN_RSA_MD2)
+	if ((se->id == GNUTLS_SIGN_RSA_MD2)
 	    && (flags & GNUTLS_VERIFY_ALLOW_SIGN_RSA_MD2))
 		return 1;
-	if ((sig == GNUTLS_SIGN_RSA_MD5)
+	if ((se->id == GNUTLS_SIGN_RSA_MD5)
 	    && (flags & GNUTLS_VERIFY_ALLOW_SIGN_RSA_MD5))
 		return 1;
 
-	hash = gnutls_sign_get_hash_algorithm(sig);
+	hash = se->hash;
 	if (hash == GNUTLS_DIG_SHA1 && (flags & GNUTLS_VERIFY_ALLOW_SIGN_WITH_SHA1))
 		return 1;
 
@@ -420,9 +421,9 @@ unsigned _gnutls_is_broken_sig_allowed(gnutls_sign_algorithm_t sig, unsigned int
 			_gnutls_debug_log(#level": certificate's signature hash is unknown\n"); \
 			return gnutls_assert_val(0); \
 		} \
-		if (entry->output_size*8/2 < sym_bits) { \
+		if (_gnutls_sign_get_hash_strength(sigalg) < sym_bits) { \
 			_gnutls_cert_log("cert", crt); \
-			_gnutls_debug_log(#level": certificate's signature hash strength is unacceptable (is %u bits, needed %u)\n", entry->output_size*8/2, sym_bits); \
+			_gnutls_debug_log(#level": certificate's signature hash strength is unacceptable (is %u bits, needed %u)\n", _gnutls_sign_get_hash_strength(sigalg), sym_bits); \
 			return gnutls_assert_val(0); \
 		} \
 		sp = gnutls_pk_bits_to_sec_param(pkalg, bits); \
@@ -431,11 +432,13 @@ unsigned _gnutls_is_broken_sig_allowed(gnutls_sign_algorithm_t sig, unsigned int
 			_gnutls_debug_log(#level": certificate's security level is unacceptable\n"); \
 			return gnutls_assert_val(0); \
 		} \
-		sp = gnutls_pk_bits_to_sec_param(issuer_pkalg, issuer_bits); \
-		if (sp < level) { \
-			_gnutls_cert_log("issuer", issuer); \
-			_gnutls_debug_log(#level": certificate's issuer security level is unacceptable\n"); \
-			return gnutls_assert_val(0); \
+		if (issuer) { \
+			sp = gnutls_pk_bits_to_sec_param(issuer_pkalg, issuer_bits); \
+			if (sp < level) { \
+				_gnutls_cert_log("issuer", issuer); \
+				_gnutls_debug_log(#level": certificate's issuer security level is unacceptable\n"); \
+				return gnutls_assert_val(0); \
+			} \
 		} \
 		break;
 
@@ -458,9 +461,20 @@ static unsigned is_level_acceptable(
 	gnutls_pk_params_st params;
 	gnutls_sec_param_t sp;
 	int hash;
+	gnutls_certificate_verification_profiles_t min_profile;
 
-	if (profile == 0)
+	min_profile = _gnutls_get_system_wide_verification_profile();
+
+	if (min_profile) {
+		if (profile < min_profile) {
+			gnutls_assert();
+			profile = min_profile;
+		}
+	}
+
+	if (profile == GNUTLS_PROFILE_UNKNOWN) {
 		return 1;
+	}
 
 	pkalg = gnutls_x509_crt_get_pk_algorithm(crt, &bits);
 	if (pkalg < 0)
@@ -479,6 +493,7 @@ static unsigned is_level_acceptable(
 		CASE_SEC_PARAM(GNUTLS_PROFILE_MEDIUM, GNUTLS_SEC_PARAM_MEDIUM);
 		CASE_SEC_PARAM(GNUTLS_PROFILE_HIGH, GNUTLS_SEC_PARAM_HIGH);
 		CASE_SEC_PARAM(GNUTLS_PROFILE_ULTRA, GNUTLS_SEC_PARAM_ULTRA);
+		CASE_SEC_PARAM(GNUTLS_PROFILE_FUTURE, GNUTLS_SEC_PARAM_FUTURE);
 		case GNUTLS_PROFILE_SUITEB128:
 		case GNUTLS_PROFILE_SUITEB192: {
 			unsigned curve, issuer_curve;
@@ -511,7 +526,7 @@ static unsigned is_level_acceptable(
 				return gnutls_assert_val(0);
 			}
 
-			curve = params.flags;
+			curve = params.curve;
 			gnutls_pk_params_release(&params);
 
 			if (curve != GNUTLS_ECC_CURVE_SECP256R1 &&
@@ -539,7 +554,7 @@ static unsigned is_level_acceptable(
 					return gnutls_assert_val(0);
 				}
 
-				issuer_curve = params.flags;
+				issuer_curve = params.curve;
 				gnutls_pk_params_release(&params);
 
 				if (issuer_curve != GNUTLS_ECC_CURVE_SECP256R1 &&
@@ -561,6 +576,8 @@ static unsigned is_level_acceptable(
 			}
 
 			break;
+		case GNUTLS_PROFILE_UNKNOWN: /* already checked; avoid compiler warnings */
+			_gnutls_debug_log("An unknown profile (%d) was encountered\n", (int)profile);
 		}
 	}
 
@@ -579,12 +596,19 @@ typedef struct verify_state_st {
 	out |= (x|GNUTLS_CERT_INVALID); \
 	result = 0; }
 
+static int _gnutls_x509_verify_data(gnutls_sign_algorithm_t sign,
+				    const gnutls_datum_t * data,
+				    const gnutls_datum_t * signature,
+				    gnutls_x509_crt_t cert,
+				    gnutls_x509_crt_t issuer,
+				    unsigned vflags);
+
 /* 
  * Verifies the given certificate against a certificate list of
  * trusted CAs.
  *
  * Returns only 0 or 1. If 1 it means that the certificate 
- * was successfuly verified.
+ * was successfully verified.
  *
  * 'flags': an OR of the gnutls_certificate_verify_flags enumeration.
  *
@@ -602,11 +626,11 @@ verify_crt(gnutls_x509_crt_t cert,
 	gnutls_datum_t cert_signed_data = { NULL, 0 };
 	gnutls_datum_t cert_signature = { NULL, 0 };
 	gnutls_x509_crt_t issuer = NULL;
-	int issuer_version, hash_algo;
+	int issuer_version;
 	unsigned result = 1;
-	const mac_entry_st * me;
 	unsigned int out = 0, usage;
 	int sigalg, ret;
+	const gnutls_sign_entry_st *se;
 
 	if (output)
 		*output = 0;
@@ -639,11 +663,13 @@ verify_crt(gnutls_x509_crt_t cert,
 
 	ret =
 	    _gnutls_x509_get_signature_algorithm(cert->cert,
-						 "signatureAlgorithm.algorithm");
+						 "signatureAlgorithm");
 	if (ret < 0) {
 		MARK_INVALID(0);
 	}
 	sigalg = ret;
+
+	se = _gnutls_sign_to_entry(sigalg);
 
 	/* issuer is not in trusted certificate
 	 * authorities.
@@ -733,24 +759,21 @@ verify_crt(gnutls_x509_crt_t cert,
 			}
 		}
 
-		if (sigalg >= 0) {
-			hash_algo = gnutls_sign_get_hash_algorithm(sigalg);
-			me = mac_to_entry(hash_algo);
-		} else {
-			me = NULL;
-		}
-
-		if (me == NULL) {
+		if (sigalg < 0) {
 			MARK_INVALID(0);
 		} else if (cert_signed_data.data != NULL &&
-			   cert_signature.data != NULL) {
+		    cert_signature.data != NULL) {
 			ret =
-			    _gnutls_x509_verify_data(me,
+			    _gnutls_x509_verify_data(sigalg,
 						     &cert_signed_data,
 						     &cert_signature,
-						     issuer);
+						     cert,
+						     issuer, flags);
+
 			if (ret == GNUTLS_E_PK_SIG_VERIFY_FAILED) {
 				MARK_INVALID(GNUTLS_CERT_SIGNATURE_FAILURE);
+			} else if (ret == GNUTLS_E_CONSTRAINT_ERROR) {
+				MARK_INVALID(GNUTLS_CERT_SIGNER_CONSTRAINTS_FAILURE);
 			} else if (ret < 0) {
 				MARK_INVALID(0);
 			}
@@ -773,7 +796,7 @@ verify_crt(gnutls_x509_crt_t cert,
 		}
 	}
 
-	if (sigalg >= 0) {
+	if (sigalg >= 0 && se) {
 		if (is_level_acceptable(cert, issuer, sigalg, flags) == 0) {
 			MARK_INVALID(GNUTLS_CERT_INSECURE_ALGORITHM);
 		}
@@ -782,8 +805,8 @@ verify_crt(gnutls_x509_crt_t cert,
 		 * used are secure. If the certificate is self signed it doesn't
 		 * really matter.
 		 */
-		if (gnutls_sign_is_secure(sigalg) == 0 &&
-		    _gnutls_is_broken_sig_allowed(sigalg, flags) == 0 &&
+		if (_gnutls_sign_is_secure2(se, GNUTLS_SIGN_FLAG_SECURE_FOR_CERTS) == 0 &&
+		    _gnutls_is_broken_sig_allowed(se, flags) == 0 &&
 		    is_issuer(cert, cert) == 0) {
 			MARK_INVALID(GNUTLS_CERT_INSECURE_ALGORITHM);
 		}
@@ -847,6 +870,36 @@ gnutls_x509_crt_check_issuer(gnutls_x509_crt_t cert,
 	return is_issuer(cert, issuer);
 }
 
+static
+unsigned check_ca_sanity(const gnutls_x509_crt_t issuer,
+			 time_t now, unsigned int flags)
+{
+	unsigned int status = 0;
+	unsigned sigalg;
+	int ret;
+
+	/* explicit time check for trusted CA that we remove from
+	 * list. GNUTLS_VERIFY_DISABLE_TRUSTED_TIME_CHECKS
+	 */
+	if (!(flags & GNUTLS_VERIFY_DISABLE_TRUSTED_TIME_CHECKS) &&
+	    !(flags & GNUTLS_VERIFY_DISABLE_TIME_CHECKS)) {
+		status |= check_time_status(issuer, now);
+	}
+
+	ret =
+	    _gnutls_x509_get_signature_algorithm(issuer->cert, "signatureAlgorithm");
+	sigalg = ret;
+
+	/* we explicitly allow CAs which we do not support their self-algorithms
+	 * to pass. */
+	if (ret >= 0 && !is_level_acceptable(issuer, NULL, sigalg, flags)) {
+		status |= GNUTLS_CERT_INSECURE_ALGORITHM|GNUTLS_CERT_INVALID;
+	}
+
+	return status;
+
+}
+
 /* Verify X.509 certificate chain.
  *
  * Note that the return value is an OR of GNUTLS_CERT_* elements.
@@ -905,25 +958,17 @@ _gnutls_verify_crt_status(const gnutls_x509_crt_t * certificate_list,
 			 * CA to self-signed CA at some point. */
 			if (_gnutls_check_if_same_key
 			    (certificate_list[i], trusted_cas[j], i) != 0) {
-				/* explicit time check for trusted CA that we remove from
-				 * list. GNUTLS_VERIFY_DISABLE_TRUSTED_TIME_CHECKS
-				 */
 
-				if (!(flags & GNUTLS_VERIFY_DISABLE_TRUSTED_TIME_CHECKS) &&
-					!(flags & GNUTLS_VERIFY_DISABLE_TIME_CHECKS)) {
-					status |=
-					    check_time_status(trusted_cas[j],
-						       now);
-					if (status != 0) {
-						if (func)
-							func(certificate_list[i], trusted_cas[j], NULL, status);
-						return status;
-					}
-				}
+				status |= check_ca_sanity(trusted_cas[j], now, flags);
 
 				if (func)
 					func(certificate_list[i],
 					     trusted_cas[j], NULL, status);
+
+				if (status != 0) {
+					return gnutls_assert_val(status);
+				}
+
 				clist_size = i;
 				break;
 			}
@@ -984,8 +1029,6 @@ _gnutls_verify_crt_status(const gnutls_x509_crt_t * certificate_list,
 	 */
 	for (i = clist_size - 1; i > 0; i--) {
 		output = 0;
-		if (i - 1 < 0)
-			break;
 
 		if (purpose != NULL) {
 			ret = _gnutls_check_key_purpose(certificate_list[i], purpose, 1);
@@ -1155,19 +1198,15 @@ _gnutls_pkcs11_verify_crt_status(const char* url,
 
 		if (gnutls_pkcs11_crt_is_known (url, certificate_list[i], vflags) != 0) {
 
-			if (!(flags & GNUTLS_VERIFY_DISABLE_TRUSTED_TIME_CHECKS) &&
-				!(flags & GNUTLS_VERIFY_DISABLE_TIME_CHECKS)) {
-				status |=
-				    check_time_status(certificate_list[i], now);
-				if (status != 0) {
-					if (func)
-						func(certificate_list[i], certificate_list[i], NULL, status);
-					return status;
-				}
-			}
+			status |= check_ca_sanity(certificate_list[i], now, flags);
+
 			if (func)
 				func(certificate_list[i],
 				     certificate_list[i], NULL, status);
+
+			if (status != 0) {
+				return gnutls_assert_val(status);
+			}
 
 			clist_size = i;
 			break;
@@ -1273,40 +1312,117 @@ cleanup:
 }
 #endif
 
+static int
+_gnutls_x509_validate_sign_params(gnutls_pk_algorithm_t pk_algorithm,
+				  ASN1_TYPE cert,
+				  const char *name,
+				  gnutls_x509_spki_st *sig_params)
+{
+	/* The signature parameter validation is only needed for RSA-PSS */
+	if (pk_algorithm == GNUTLS_PK_RSA_PSS) {
+		int result;
+		gnutls_x509_spki_st params;
+
+		result = _gnutls_x509_read_sign_params(cert, name, &params);
+		if (result < 0) {
+			/* If parameters field is absent, no parameter
+			 * validation is needed */
+			if (result != GNUTLS_E_ASN1_ELEMENT_NOT_FOUND &&
+			    result != GNUTLS_E_ASN1_VALUE_NOT_FOUND) {
+				gnutls_assert();
+				return result;
+			}
+		} else {
+			/* Check if the underlying hash algorithms are same.  */
+			if (sig_params->rsa_pss_dig != params.rsa_pss_dig) {
+				gnutls_assert();
+				return GNUTLS_E_CONSTRAINT_ERROR;
+			}
+
+			/* The salt length used to generate the
+			 * signature must be equal to or larger than
+			 * the one in the key parameter. */
+			if (sig_params->salt_size < params.salt_size) {
+				gnutls_assert();
+				return GNUTLS_E_CONSTRAINT_ERROR;
+			}
+		}
+	}
+	return 0;
+}
+
 /* verifies if the certificate is properly signed.
  * returns GNUTLS_E_PK_VERIFY_SIG_FAILED on failure and 1 on success.
  * 
  * 'data' is the signed data
  * 'signature' is the signature!
  */
-int
-_gnutls_x509_verify_data(const mac_entry_st * me,
+static int
+_gnutls_x509_verify_data(gnutls_sign_algorithm_t sign,
 			 const gnutls_datum_t * data,
 			 const gnutls_datum_t * signature,
-			 gnutls_x509_crt_t issuer)
+			 gnutls_x509_crt_t cert,
+			 gnutls_x509_crt_t issuer,
+			 unsigned vflags)
 {
-	gnutls_pk_params_st issuer_params;
+	gnutls_pk_params_st params;
+	gnutls_pk_algorithm_t issuer_pk;
 	int ret;
+	gnutls_x509_spki_st sign_params;
+	const gnutls_sign_entry_st *se;
 
 	/* Read the MPI parameters from the issuer's certificate.
 	 */
-	ret = _gnutls_x509_crt_get_mpis(issuer, &issuer_params);
+	ret = _gnutls_x509_crt_get_mpis(issuer, &params);
 	if (ret < 0) {
 		gnutls_assert();
 		return ret;
 	}
 
-	ret =
-	    pubkey_verify_data(gnutls_x509_crt_get_pk_algorithm
-			       (issuer, NULL), me, data, signature,
-			       &issuer_params);
+	issuer_pk = gnutls_x509_crt_get_pk_algorithm(issuer, NULL);
+
+	se = _gnutls_sign_to_entry(sign);
+	if (se == NULL)
+		return gnutls_assert_val(GNUTLS_E_UNSUPPORTED_SIGNATURE_ALGORITHM);
+
+	if (cert != NULL) {
+		ret = _gnutls_x509_read_sign_params(cert->cert,
+						    "signatureAlgorithm",
+						    &sign_params);
+		if (ret < 0) {
+			gnutls_assert();
+			goto cleanup;
+		}
+
+		ret = _gnutls_x509_validate_sign_params(issuer_pk,
+							issuer->cert,
+							"tbsCertificate."
+							"subjectPublicKeyInfo."
+							"algorithm",
+							&sign_params);
+		if (ret < 0) {
+			gnutls_assert();
+			goto cleanup;
+		}
+	} else {
+		memcpy(&sign_params, &params.spki,
+		       sizeof(gnutls_x509_spki_st));
+
+		sign_params.pk = se->pk;
+		if (sign_params.pk == GNUTLS_PK_RSA_PSS)
+			sign_params.rsa_pss_dig = se->hash;
+	}
+
+	ret = pubkey_verify_data(se, hash_to_entry(se->hash), data, signature, &params,
+				 &sign_params, vflags);
 	if (ret < 0) {
 		gnutls_assert();
 	}
 
+ cleanup:
 	/* release all allocated MPIs
 	 */
-	gnutls_pk_params_release(&issuer_params);
+	gnutls_pk_params_release(&params);
 
 	return ret;
 }
@@ -1477,8 +1593,9 @@ gnutls_x509_crl_verify(gnutls_x509_crl_t crl,
 	gnutls_datum_t crl_signed_data = { NULL, 0 };
 	gnutls_datum_t crl_signature = { NULL, 0 };
 	gnutls_x509_crt_t issuer = NULL;
-	int result, hash_algo;
+	int result, sigalg;
 	time_t now = gnutls_time(0);
+	time_t nextu;
 	unsigned int usage;
 
 	if (verify)
@@ -1507,17 +1624,15 @@ gnutls_x509_crl_verify(gnutls_x509_crl_t crl,
 		goto cleanup;
 	}
 
-	result =
+	sigalg =
 	    _gnutls_x509_get_signature_algorithm(crl->crl,
-						 "signatureAlgorithm.algorithm");
-	if (result < 0) {
+						 "signatureAlgorithm");
+	if (sigalg < 0) {
 		gnutls_assert();
 		if (verify)
 			*verify |= GNUTLS_CERT_INVALID;
 		goto cleanup;
 	}
-
-	hash_algo = gnutls_sign_get_hash_algorithm(result);
 
 	/* issuer is not in trusted certificate
 	 * authorities.
@@ -1556,14 +1671,19 @@ gnutls_x509_crl_verify(gnutls_x509_crl_t crl,
 		}
 
 		result =
-		    _gnutls_x509_verify_data(mac_to_entry(hash_algo),
+		    _gnutls_x509_verify_data(sigalg,
 					     &crl_signed_data, &crl_signature,
-					     issuer);
+					     NULL,
+					     issuer, flags);
 		if (result == GNUTLS_E_PK_SIG_VERIFY_FAILED) {
 			gnutls_assert();
 			/* error. ignore it */
 			if (verify)
 				*verify |= GNUTLS_CERT_SIGNATURE_FAILURE;
+			result = 0;
+		} else if (result == GNUTLS_E_CONSTRAINT_ERROR) {
+			if (verify)
+				*verify |= GNUTLS_CERT_SIGNER_CONSTRAINTS_FAILURE;
 			result = 0;
 		} else if (result < 0) {
 			gnutls_assert();
@@ -1576,8 +1696,6 @@ gnutls_x509_crl_verify(gnutls_x509_crl_t crl,
 	}
 
 	{
-		int sigalg;
-
 		sigalg = gnutls_x509_crl_get_signature_algorithm(crl);
 
 		if (((sigalg == GNUTLS_SIGN_RSA_MD2) &&
@@ -1593,7 +1711,8 @@ gnutls_x509_crl_verify(gnutls_x509_crl_t crl,
 	if (gnutls_x509_crl_get_this_update(crl) > now && verify)
 		*verify |= GNUTLS_CERT_REVOCATION_DATA_ISSUED_IN_FUTURE;
 
-	if (gnutls_x509_crl_get_next_update(crl) < now && verify)
+	nextu = gnutls_x509_crl_get_next_update(crl);
+	if (nextu != -1 && nextu < now && verify)
 		*verify |= GNUTLS_CERT_REVOCATION_DATA_SUPERSEDED;
 
 

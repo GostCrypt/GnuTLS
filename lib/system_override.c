@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -54,6 +54,9 @@
  * replacements may not have access to the same @errno
  * variable that is used by GnuTLS (e.g., the application is linked to
  * msvcr71.dll and gnutls is linked to msvcrt.dll).
+ *
+ * This function is unreliable if you are using the same
+ * @session in different threads for sending and receiving.
  *
  **/
 void gnutls_transport_set_errno(gnutls_session_t session, int err)
@@ -103,15 +106,13 @@ gnutls_transport_set_pull_function(gnutls_session_t session,
  * int (*gnutls_pull_timeout_func)(gnutls_transport_ptr_t, unsigned int ms);
  *
  * This callback is necessary when gnutls_handshake_set_timeout() or 
- * gnutls_record_set_timeout() are set, and for calculating the DTLS mode
- * timeouts.
+ * gnutls_record_set_timeout() are set, under TLS1.3 and for enforcing the DTLS
+ * mode timeouts when in blocking mode.
  *
- * In short, this callback should be set when a custom pull function is
- * registered. The callback will not be used when the session is in TLS mode with
- * non-blocking sockets. That is, when %GNUTLS_NONBLOCK is specified for a TLS
- * session in gnutls_init(). For compatibility with future GnuTLS versions
- * it is recommended to always set this function when a custom pull function
- * is registered.
+ * For compatibility with future GnuTLS versions this callback must be set when
+ * a custom pull function is registered. The callback will not be used when the
+ * session is in TLS mode with non-blocking sockets. That is, when %GNUTLS_NONBLOCK
+ * is specified for a TLS session in gnutls_init().
  *
  * The helper function gnutls_system_recv_timeout() is provided to
  * simplify writing callbacks. 

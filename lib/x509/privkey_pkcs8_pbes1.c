@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -135,7 +135,7 @@ _gnutls_decrypt_pbes1_des_md5_data(const char *password,
 			   unsigned password_len,
 			   const struct pbkdf2_params *kdf_params,
 			   const struct pbe_enc_params *enc_params,
-			   gnutls_datum_t *encrypted_data, /* we re-use it */
+			   const gnutls_datum_t *encrypted_data,
 			   gnutls_datum_t *decrypted_data)
 {
 	int result;

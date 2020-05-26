@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2003-2016 Free Software Foundation, Inc.
- * Copyright (C) 2015-2016 Red Hat, Inc.
+ * Copyright (C) 2015-2017 Red Hat, Inc.
  *
  * This file is part of GnuTLS.
  *
@@ -16,7 +16,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see
- * <http://www.gnu.org/licenses/>.
+ * <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -395,6 +395,7 @@ gnutls_x509_crt_t *load_cert_list(int mand, size_t * crt_size,
 	gnutls_datum_t dat;
 	unsigned size;
 	unsigned int crt_max;
+	unsigned flags = 0;
 
 	*crt_size = 0;
 	if (info->verbose)
@@ -424,7 +425,10 @@ gnutls_x509_crt_t *load_cert_list(int mand, size_t * crt_size,
 	dat.data = (void *) lbuffer;
 	dat.size = size;
 
-	ret = gnutls_x509_crt_list_import2(&crt, &crt_max, &dat, GNUTLS_X509_FMT_PEM, 0);
+	if (info->sort_chain)
+		flags |= GNUTLS_X509_CRT_LIST_SORT;
+
+	ret = gnutls_x509_crt_list_import2(&crt, &crt_max, &dat, GNUTLS_X509_FMT_PEM, flags);
 	if (ret < 0) {
 		fprintf(stderr, "Error loading certificates: %s\n", gnutls_strerror(ret));
 		app_exit(1);
@@ -698,7 +702,7 @@ gnutls_pubkey_t load_public_key_or_import(int mand,
 		gnutls_pubkey_deinit(pubkey);
 		pubkey = load_pubkey(0, info);
 		if (pubkey == NULL && mand) {
-			fprintf(stderr, "You must specify --load-privkey\n");
+			fprintf(stderr, "Could not determine the public key for the operation.\nYou must specify --load-privkey or --load-pubkey if missing.\n");
 			app_exit(1);
 		}
 	}
@@ -805,14 +809,20 @@ static void print_head(FILE * out, const char *txt, unsigned int size,
 {
 	unsigned i;
 	char *p, *ntxt;
+	int ret;
 
 	if (cprint != 0) {
 		if (size > 0)
-			asprintf(&ntxt, "const unsigned char %s[%u] =",
-				 txt, size);
+			ret = asprintf(&ntxt, "const unsigned char %s[%u] =",
+				       txt, size);
 		else
-			asprintf(&ntxt, "const unsigned char %s[] =\n",
-				 txt);
+			ret = asprintf(&ntxt, "const unsigned char %s[] =\n",
+				       txt);
+
+		if (ret == -1) {
+			fprintf(stderr, "memory error\n");
+			app_exit(1);
+		}
 
 		p = strstr(ntxt, "char");
 		p += 5;
@@ -887,16 +897,73 @@ print_ecc_pkey(FILE * outfile, gnutls_ecc_curve_t curve,
 		fprintf(outfile, "curve:\t%s\n",
 			gnutls_ecc_curve_get_name(curve));
 
-	if (k) {
+	if (k && k->data) {
 		print_head(outfile, "private key", k->size, cprint);
 		print_hex_datum(outfile, k, cprint);
 	}
+
+	if (x && x->data) {
+		print_head(outfile, "x", x->size, cprint);
+		print_hex_datum(outfile, x, cprint);
+	}
+
+	if (y && y->data) {
+		print_head(outfile, "y", y->size, cprint);
+		print_hex_datum(outfile, y, cprint);
+	}
+}
+
+static void reverse_datum(gnutls_datum_t *d)
+{
+	unsigned int i;
+	unsigned char c;
+
+	for (i = 0; i < d->size / 2; i++) {
+		c = d->data[i];
+		d->data[i] = d->data[d->size - i - 1];
+		d->data[d->size - i - 1] = c;
+	}
+}
+
+void
+print_gost_pkey(FILE * outfile, gnutls_ecc_curve_t curve,
+	       gnutls_digest_algorithm_t digest, gnutls_gost_paramset_t paramset,
+	       gnutls_datum_t * k, gnutls_datum_t * x, gnutls_datum_t * y,
+	       int cprint)
+{
+	if (cprint != 0)
+		fprintf(outfile, "/* curve: %s */\n",
+			gnutls_ecc_curve_get_name(curve));
+	else
+		fprintf(outfile, "curve:\t%s\n",
+			gnutls_ecc_curve_get_name(curve));
+
+	if (cprint != 0)
+		fprintf(outfile, "/* digest: %s */\n",
+			gnutls_digest_get_name(digest));
+	else
+		fprintf(outfile, "digest:\t%s\n",
+			gnutls_digest_get_name(digest));
+
+	if (cprint != 0)
+		fprintf(outfile, "/* paramset: %s */\n",
+			gnutls_gost_paramset_get_name(paramset));
+	else
+		fprintf(outfile, "paramset:\t%s\n",
+			gnutls_gost_paramset_get_name(paramset));
+
+	if (k) {
+		reverse_datum(k);
+		print_head(outfile, "private key", k->size, cprint);
+		print_hex_datum(outfile, k, cprint);
+	}
+	reverse_datum(x);
+	reverse_datum(y);
 	print_head(outfile, "x", x->size, cprint);
 	print_hex_datum(outfile, x, cprint);
 	print_head(outfile, "y", y->size, cprint);
 	print_hex_datum(outfile, y, cprint);
 }
-
 
 void
 print_rsa_pkey(FILE * outfile, gnutls_datum_t * m, gnutls_datum_t * e,
@@ -926,36 +993,40 @@ print_rsa_pkey(FILE * outfile, gnutls_datum_t * m, gnutls_datum_t * e,
 	}
 }
 
-void _pubkey_info(FILE * outfile,
-		  gnutls_certificate_print_formats_t format,
-		  gnutls_pubkey_t pubkey)
+void print_pubkey_info(gnutls_pubkey_t pubkey,
+		       FILE *outfile,
+		       gnutls_certificate_print_formats_t format,
+		       gnutls_x509_crt_fmt_t outcert_format,
+		       unsigned int outtext)
 {
 	gnutls_datum_t data;
 	int ret;
 	size_t size;
 
-	fix_lbuffer(0);
+	if (outtext) {
+		ret = gnutls_pubkey_print(pubkey, format, &data);
+		if (ret < 0) {
+			fprintf(stderr, "pubkey_print error: %s\n",
+				gnutls_strerror(ret));
+			app_exit(1);
+		}
 
-	ret = gnutls_pubkey_print(pubkey, format, &data);
-	if (ret < 0) {
-		fprintf(stderr, "pubkey_print error: %s\n",
-			gnutls_strerror(ret));
-		app_exit(1);
+		fprintf(outfile, "%s\n\n", data.data);
+		gnutls_free(data.data);
 	}
 
-	fprintf(outfile, "%s\n", data.data);
-	gnutls_free(data.data);
+	fix_lbuffer(0);
 
 	size = lbuffer_size;
 	ret =
-	    gnutls_pubkey_export(pubkey, GNUTLS_X509_FMT_PEM, lbuffer,
+	    gnutls_pubkey_export(pubkey, outcert_format, lbuffer,
 				 &size);
 	if (ret < 0) {
 		fprintf(stderr, "export error: %s\n", gnutls_strerror(ret));
 		app_exit(1);
 	}
 
-	fprintf(outfile, "\n%s\n", lbuffer);
+	fwrite(lbuffer, 1, size, outfile);
 }
 
 static void
@@ -1047,7 +1118,7 @@ void dh_info(FILE * infile, FILE * outfile, common_info_st * ci)
 		app_exit(1);
 	}
 
-	if (ci->outcert_format == GNUTLS_X509_FMT_PEM)
+	if (ci->outtext)
 		print_dh_info(outfile, &p, &g, q_bits, ci->cprint);
 
 	if (!ci->cprint) {	/* generate a PKCS#3 structure */
@@ -1097,6 +1168,18 @@ int cipher_to_flags(const char *cipher)
 		return GNUTLS_PKCS_USE_PBES2_AES_256;
 	} else if (strcasecmp(cipher, "rc2-40") == 0) {
 		return GNUTLS_PKCS_USE_PKCS12_RC2_40;
+	} else if (strcasecmp(cipher, "gost28147-tc26z") == 0) {
+		return GNUTLS_PKCS_USE_PBES2_GOST_TC26Z;
+	} else if (strcasecmp(cipher, "gost28147-cpa") == 0) {
+		return GNUTLS_PKCS_USE_PBES2_GOST_CPA;
+	} else if (strcasecmp(cipher, "gost28147-cpb") == 0) {
+		return GNUTLS_PKCS_USE_PBES2_GOST_CPB;
+	} else if (strcasecmp(cipher, "gost28147-cpc") == 0) {
+		return GNUTLS_PKCS_USE_PBES2_GOST_CPC;
+	} else if (strcasecmp(cipher, "gost28147-cpd") == 0) {
+		return GNUTLS_PKCS_USE_PBES2_GOST_CPD;
+	} else if (strcasecmp(cipher, "none") == 0) {
+		return GNUTLS_PKCS_PLAIN;
 	}
 
 	fprintf(stderr, "unknown cipher %s\n", cipher);
@@ -1110,24 +1193,57 @@ static void privkey_info_int(FILE *outfile, common_info_st * cinfo,
 	unsigned int bits = 0;
 	size_t size;
 	const char *cprint;
+	gnutls_x509_spki_t spki;
+	gnutls_digest_algorithm_t dig;
 
 	/* Public key algorithm
 	 */
 	fprintf(outfile, "Public Key Info:\n");
-	ret = gnutls_x509_privkey_get_pk_algorithm2(key, &bits);
+	ret = gnutls_x509_spki_init(&spki);
+	if (ret < 0) {
+		fprintf(stderr, "spki_init: %s\n", gnutls_strerror(ret));
+		return;
+	}
+
 	fprintf(outfile, "\tPublic Key Algorithm: ");
 
-	key_type = ret;
+	key_type = gnutls_x509_privkey_get_pk_algorithm2(key, &bits);
 
 	cprint = gnutls_pk_algorithm_get_name(key_type);
 	fprintf(outfile, "%s\n", cprint ? cprint : "Unknown");
+
+	if (key_type == GNUTLS_PK_RSA_PSS) {
+		unsigned int salt_size;
+
+		ret = gnutls_x509_privkey_get_spki(key, spki, 0);
+		if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
+			goto spki_skip;
+
+		if (ret < 0) {
+			fprintf(stderr, "spki_get: %s\n", gnutls_strerror(ret));
+			goto spki_skip;
+		}
+
+		ret = gnutls_x509_spki_get_rsa_pss_params(spki, &dig, &salt_size);
+		if (ret < 0) {
+			fprintf(stderr, "spki_get_rsa_pss_params: %s\n",
+				gnutls_strerror(ret));
+		} else {
+			fprintf(outfile, "\t\tHash Algorithm: %s\n",
+				gnutls_digest_get_name(dig));
+			fprintf(outfile, "\t\tSalt Length: %d\n", salt_size);
+		}
+	}
+
+ spki_skip:
+	gnutls_x509_spki_deinit(spki);
 	fprintf(outfile, "\tKey Security Level: %s (%u bits)\n\n",
 		gnutls_sec_param_get_name(gnutls_x509_privkey_sec_param
 					  (key)), bits);
 
 	/* Print the raw public and private keys
 	 */
-	if (key_type == GNUTLS_PK_RSA) {
+	if (GNUTLS_PK_IS_RSA(key_type)) {
 		gnutls_datum_t m, e, d, p, q, u, exp1, exp2;
 
 		ret =
@@ -1171,7 +1287,9 @@ static void privkey_info_int(FILE *outfile, common_info_st * cinfo,
 			gnutls_free(q.data);
 			gnutls_free(g.data);
 		}
-	} else if (key_type == GNUTLS_PK_EC) {
+	} else if (key_type == GNUTLS_PK_ECDSA ||
+		   key_type == GNUTLS_PK_EDDSA_ED25519 ||
+		   key_type == GNUTLS_PK_EDDSA_ED448) {
 		gnutls_datum_t y, x, k;
 		gnutls_ecc_curve_t curve;
 
@@ -1183,9 +1301,6 @@ static void privkey_info_int(FILE *outfile, common_info_st * cinfo,
 				"Error in key ECC data export: %s\n",
 				gnutls_strerror(ret));
 		else {
-			cprint = gnutls_ecc_curve_get_name(curve);
-			bits = 0;
-
 			print_ecc_pkey(outfile, curve, &k, &x, &y,
 				       cinfo->cprint);
 
@@ -1193,16 +1308,45 @@ static void privkey_info_int(FILE *outfile, common_info_st * cinfo,
 			gnutls_free(y.data);
 			gnutls_free(k.data);
 		}
+	} else if (key_type == GNUTLS_PK_GOST_01 ||
+		   key_type == GNUTLS_PK_GOST_12_256 ||
+		   key_type == GNUTLS_PK_GOST_12_512) {
+		gnutls_datum_t y, x, k;
+		gnutls_ecc_curve_t curve;
+		gnutls_digest_algorithm_t digest;
+		gnutls_gost_paramset_t paramset;
+
+		ret =
+		    gnutls_x509_privkey_export_gost_raw(key, &curve,
+							&digest,
+							&paramset,
+							&x, &y, &k);
+		if (ret < 0)
+			fprintf(stderr,
+				"Error in key GOST data export: %s\n",
+				gnutls_strerror(ret));
+		else {
+			print_gost_pkey(outfile, curve, digest, paramset,
+					&k, &x, &y,
+					cinfo->cprint);
+
+			gnutls_free(x.data);
+			gnutls_free(y.data);
+			gnutls_free(k.data);
+		}
+	}
+
+	size = lbuffer_size;
+	ret = gnutls_x509_privkey_get_seed(key, &dig, lbuffer, &size);
+	if (ret >= 0) {
+		fprintf(outfile, "Validation parameters:\n");
+		fprintf(outfile, "\tHash: %s\n",
+			gnutls_digest_get_name(dig));
+		fprintf(outfile, "\tSeed: %s\n",
+			raw_to_hex(lbuffer, size));
 	}
 
 	fprintf(outfile, "\n");
-
-	size = lbuffer_size;
-	ret = gnutls_x509_privkey_get_seed(key, NULL, lbuffer, &size);
-	if (ret >= 0) {
-		fprintf(outfile, "Seed: %s\n",
-			raw_to_string(lbuffer, size));
-	}
 
 	size = lbuffer_size;
 	ret =
@@ -1238,10 +1382,13 @@ print_private_key(FILE *outfile, common_info_st * cinfo, gnutls_x509_privkey_t k
 	if (!key)
 		return;
 
+	/* Only print private key parameters when an unencrypted
+	 * format is used */
+	switch_to_pkcs8_when_needed(cinfo, key, gnutls_x509_privkey_get_pk_algorithm(key));
+
 	if (!cinfo->pkcs8) {
-		/* Only print private key parameters when an unencrypted
-		 * format is used */
-		if (cinfo->outcert_format == GNUTLS_X509_FMT_PEM)
+
+		if (cinfo->outtext)
 			privkey_info_int(outfile, cinfo, key);
 
 		size = lbuffer_size;
@@ -1252,28 +1399,15 @@ print_private_key(FILE *outfile, common_info_st * cinfo, gnutls_x509_privkey_t k
 				gnutls_strerror(ret));
 			app_exit(1);
 		}
-
-		if (cinfo->no_compat == 0 && gnutls_x509_privkey_get_seed(key, NULL, NULL, 0) != GNUTLS_E_INVALID_REQUEST) {
-			gnutls_x509_privkey_set_flags(key, GNUTLS_PRIVKEY_FLAG_EXPORT_COMPAT);
-
-			fwrite(lbuffer, 1, size, outfile);
-
-			size = lbuffer_size;
-			ret = gnutls_x509_privkey_export(key, cinfo->outcert_format,
-						 lbuffer, &size);
-			if (ret < 0) {
-				fprintf(stderr, "privkey_export: %s\n",
-					gnutls_strerror(ret));
-				app_exit(1);
-			}
-		}
-
 	} else {
 		unsigned int flags = 0;
 		const char *pass;
 
 		pass = get_password(cinfo, &flags, 0);
 		flags |= cipher_to_flags(cinfo->pkcs_cipher);
+
+		if (cinfo->outtext && (flags & GNUTLS_PKCS_PLAIN))
+			privkey_info_int(outfile, cinfo, key);
 
 		size = lbuffer_size;
 		ret =
@@ -1314,7 +1448,6 @@ int generate_prime(FILE * outfile, int how, common_info_st * info)
 	if (how != 0) {
 		if (info->provable != 0) {
 			gnutls_x509_privkey_t pkey;
-			unsigned save;
 
 			ret = gnutls_x509_privkey_init(&pkey);
 			if (ret < 0) {
@@ -1349,10 +1482,7 @@ int generate_prime(FILE * outfile, int how, common_info_st * info)
 			}
 
 			if (info->outcert_format == GNUTLS_X509_FMT_PEM) {
-				save = info->no_compat;
-				info->no_compat = 1;
 				print_private_key(outfile, info, pkey);
-				info->no_compat = save;
 			}
 
 			ret = gnutls_dh_params_import_dsa(dh_params, pkey);
@@ -1392,22 +1522,22 @@ int generate_prime(FILE * outfile, int how, common_info_st * info)
 			p = gnutls_ffdhe_2048_group_prime;
 			g = gnutls_ffdhe_2048_group_generator;
 			key_bits = gnutls_ffdhe_2048_key_bits;
-			bits = 2048;
 		} else if (bits <= 3072) {
 			p = gnutls_ffdhe_3072_group_prime;
 			g = gnutls_ffdhe_3072_group_generator;
 			key_bits = gnutls_ffdhe_3072_key_bits;
-			bits = 3072;
 		} else if (bits <= 4096) {
 			p = gnutls_ffdhe_4096_group_prime;
 			g = gnutls_ffdhe_4096_group_generator;
 			key_bits = gnutls_ffdhe_4096_key_bits;
-			bits = 4096;
+		} else if (bits <= 6144) {
+			p = gnutls_ffdhe_6144_group_prime;
+			g = gnutls_ffdhe_6144_group_generator;
+			key_bits = gnutls_ffdhe_6144_key_bits;
 		} else {
 			p = gnutls_ffdhe_8192_group_prime;
 			g = gnutls_ffdhe_8192_group_generator;
 			key_bits = gnutls_ffdhe_8192_key_bits;
-			bits = 8192;
 		}
 
 		ret = gnutls_dh_params_import_raw2(dh_params, &p, &g, key_bits);
@@ -1420,23 +1550,18 @@ int generate_prime(FILE * outfile, int how, common_info_st * info)
 		if (bits <= 1024) {
 			p = gnutls_srp_1024_group_prime;
 			g = gnutls_srp_1024_group_generator;
-			bits = 1024;
 		} else if (bits <= 1536) {
 			p = gnutls_srp_1536_group_prime;
 			g = gnutls_srp_1536_group_generator;
-			bits = 1536;
 		} else if (bits <= 2048) {
 			p = gnutls_srp_2048_group_prime;
 			g = gnutls_srp_2048_group_generator;
-			bits = 2048;
 		} else if (bits <= 3072) {
 			p = gnutls_srp_3072_group_prime;
 			g = gnutls_srp_3072_group_generator;
-			bits = 3072;
 		} else {
 			p = gnutls_srp_4096_group_prime;
 			g = gnutls_srp_4096_group_generator;
-			bits = 4096;
 		}
 
 		ret = gnutls_dh_params_import_raw(dh_params, &p, &g);
@@ -1452,7 +1577,7 @@ int generate_prime(FILE * outfile, int how, common_info_st * info)
 #endif
 	}
 
-	if (info->outcert_format == GNUTLS_X509_FMT_PEM)
+	if (info->outtext)
 		print_dh_info(outfile, &p, &g, q_bits, info->cprint);
 
 	if (!info->cprint) {	/* generate a PKCS#3 structure */
@@ -1508,4 +1633,87 @@ void decode_seed(gnutls_datum_t *seed, const char *hex, unsigned hex_size)
 	seed->size = seed_size;
 
 	return;
+}
+
+gnutls_pk_algorithm_t figure_key_type(const char *key_type)
+{
+	if (strcasecmp(key_type, "rsa") == 0)
+		return GNUTLS_PK_RSA;
+	else if (strcasecmp(key_type, "rsa-pss") == 0)
+		return GNUTLS_PK_RSA_PSS;
+	else if (strcasecmp(key_type, "ed25519") == 0 || strcasecmp(key_type, "eddsa") == 0)
+		return GNUTLS_PK_EDDSA_ED25519;
+	else if (strcasecmp(key_type, "ed448") == 0)
+		return GNUTLS_PK_EDDSA_ED448;
+	else if (strcasecmp(key_type, "dsa") == 0)
+		return GNUTLS_PK_DSA;
+	else if (strcasecmp(key_type, "ecdsa") == 0 || strcasecmp(key_type, "ecc") == 0)
+		return GNUTLS_PK_ECDSA;
+	else if (strcasecmp(key_type, "gost01") == 0)
+		return GNUTLS_PK_GOST_01;
+	else if (strcasecmp(key_type, "gost12-256") == 0)
+		return GNUTLS_PK_GOST_12_256;
+	else if (strcasecmp(key_type, "gost12-512") == 0)
+		return GNUTLS_PK_GOST_12_512;
+	else {
+		fprintf(stderr, "unknown key type: %s\n", key_type);
+		return GNUTLS_PK_UNKNOWN;
+	}
+}
+
+gnutls_digest_algorithm_t hash_to_id(const char *hash)
+{
+	if (strcasecmp(hash, "md5") == 0) {
+		fprintf(stderr,
+			"Warning: MD5 is broken, and should not be used any more for digital signatures.\n");
+		return GNUTLS_DIG_MD5;
+	} else if (strcasecmp(hash, "sha1") == 0)
+		return GNUTLS_DIG_SHA1;
+	else if (strcasecmp(hash, "sha256") == 0)
+		return GNUTLS_DIG_SHA256;
+	else if (strcasecmp(hash, "sha224") == 0)
+		return GNUTLS_DIG_SHA224;
+	else if (strcasecmp(hash, "sha384") == 0)
+		return GNUTLS_DIG_SHA384;
+	else if (strcasecmp(hash, "sha512") == 0)
+		return GNUTLS_DIG_SHA512;
+	else if (strcasecmp(hash, "sha3-256") == 0)
+		return GNUTLS_DIG_SHA3_256;
+	else if (strcasecmp(hash, "sha3-224") == 0)
+		return GNUTLS_DIG_SHA3_224;
+	else if (strcasecmp(hash, "sha3-384") == 0)
+		return GNUTLS_DIG_SHA3_384;
+	else if (strcasecmp(hash, "sha3-512") == 0)
+		return GNUTLS_DIG_SHA3_512;
+	else if (strcasecmp(hash, "rmd160") == 0)
+		return GNUTLS_DIG_RMD160;
+	else {
+		return gnutls_digest_get_id(hash);
+	}
+}
+
+void sign_params_to_flags(common_info_st *cinfo, const char *params)
+{
+	char *p, *sp;
+
+	sp = strdup(params);
+	if (sp == NULL) {
+		fprintf(stderr, "memory error\n");
+		app_exit(1);
+	}
+
+	p = strtok(sp, ",");
+
+	while(p != NULL) {
+		if (strcasecmp(p, "rsa-pss")==0) {
+			cinfo->rsa_pss_sign = 1;
+		} else {
+			fprintf(stderr, "Unknown signature parameter: %s\n", p);
+			app_exit(1);
+		}
+
+		p=strtok(NULL, ",");
+	}
+
+	free(sp);
 }

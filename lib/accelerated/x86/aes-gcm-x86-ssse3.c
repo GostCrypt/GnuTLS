@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011-2012 Free Software Foundation, Inc.
+ * Copyright (C) 2018 Red Hat, Inc.
  *
  * Author: Nikos Mavrogiannopoulos
  *
@@ -16,7 +17,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -36,6 +37,7 @@
 #include <byteswap.h>
 #include <nettle/gcm.h>
 #include <aes-x86.h>
+#include <assert.h>
 
 /* GCM mode 
  * It is used when the CPU doesn't include the PCLMUL instructions.
@@ -47,8 +49,16 @@ static void x86_aes_encrypt(const void *_ctx,
 				const uint8_t * src)
 {
 	AES_KEY *ctx = (void*)_ctx;
+	unsigned i;
+	unsigned blocks = (length+15) / 16;
 
-	vpaes_encrypt(src, dst, ctx);
+	assert(blocks*16 == length);
+
+	for (i=0;i<blocks;i++) {
+		vpaes_encrypt(src, dst, ctx);
+		dst += 16;
+		src += 16;
+	}
 }
 
 static void x86_aes_128_set_encrypt_key(void *_ctx,
@@ -96,7 +106,8 @@ aes_gcm_cipher_setkey(void *_ctx, const void *key, size_t keysize)
 	} else if (keysize == 32) {
 		GCM_SET_KEY(ctx, x86_aes_256_set_encrypt_key, x86_aes_encrypt,
 			    key);
-	} else abort();
+	} else
+		return GNUTLS_E_INVALID_REQUEST;
 
 	return 0;
 }

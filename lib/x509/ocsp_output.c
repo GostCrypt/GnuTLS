@@ -15,7 +15,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -35,7 +35,7 @@
 #define addf _gnutls_buffer_append_printf
 #define adds _gnutls_buffer_append_str
 
-static void print_req(gnutls_buffer_st * str, gnutls_ocsp_req_t req)
+static void print_req(gnutls_buffer_st * str, gnutls_ocsp_req_const_t req)
 {
 	int ret;
 	unsigned indx;
@@ -169,7 +169,7 @@ static void print_req(gnutls_buffer_st * str, gnutls_ocsp_req_t req)
  *   negative error value.
  **/
 int
-gnutls_ocsp_req_print(gnutls_ocsp_req_t req,
+gnutls_ocsp_req_print(gnutls_ocsp_req_const_t req,
 		      gnutls_ocsp_print_formats_t format,
 		      gnutls_datum_t * out)
 {
@@ -197,7 +197,7 @@ gnutls_ocsp_req_print(gnutls_ocsp_req_t req,
 }
 
 static void
-print_resp(gnutls_buffer_st * str, gnutls_ocsp_resp_t resp,
+print_resp(gnutls_buffer_st * str, gnutls_ocsp_resp_const_t resp,
 	   gnutls_ocsp_print_formats_t format)
 {
 	int ret;
@@ -510,28 +510,30 @@ print_resp(gnutls_buffer_st * str, gnutls_ocsp_resp_t resp,
 
 		gnutls_free(oid.data);
 		gnutls_free(data.data);
+
+	}
+
+	ret = gnutls_ocsp_resp_get_signature_algorithm(resp);
+	if (ret < 0)
+		addf(str, "error: get_signature_algorithm: %s\n",
+		     gnutls_strerror(ret));
+	else {
+		const char *name =
+		    gnutls_sign_algorithm_get_name(ret);
+		if (name == NULL)
+			name = _("unknown");
+		addf(str, _("\tSignature Algorithm: %s\n"), name);
+	}
+	if (ret != GNUTLS_SIGN_UNKNOWN && gnutls_sign_is_secure(ret) == 0) {
+		adds(str,
+		     _("warning: signed using a broken signature "
+		       "algorithm that can be forged.\n"));
 	}
 
 	/* Signature. */
 	if (format == GNUTLS_OCSP_PRINT_FULL) {
 		gnutls_datum_t sig;
 
-		ret = gnutls_ocsp_resp_get_signature_algorithm(resp);
-		if (ret < 0)
-			addf(str, "error: get_signature_algorithm: %s\n",
-			     gnutls_strerror(ret));
-		else {
-			const char *name =
-			    gnutls_sign_algorithm_get_name(ret);
-			if (name == NULL)
-				name = _("unknown");
-			addf(str, _("\tSignature Algorithm: %s\n"), name);
-		}
-		if (ret != GNUTLS_SIGN_UNKNOWN && gnutls_sign_is_secure(ret) == 0) {
-			adds(str,
-			     _("warning: signed using a broken signature "
-			       "algorithm that can be forged.\n"));
-		}
 
 		ret = gnutls_ocsp_resp_get_signature(resp, &sig);
 		if (ret < 0)
@@ -637,7 +639,7 @@ print_resp(gnutls_buffer_st * str, gnutls_ocsp_resp_t resp,
  *   negative error value.
  **/
 int
-gnutls_ocsp_resp_print(gnutls_ocsp_resp_t resp,
+gnutls_ocsp_resp_print(gnutls_ocsp_resp_const_t resp,
 		       gnutls_ocsp_print_formats_t format,
 		       gnutls_datum_t * out)
 {

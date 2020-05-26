@@ -1,19 +1,16 @@
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/330/badge)](https://bestpractices.coreinfrastructure.org/projects/330)
 
-|Branch|CI system|Status|Coverage|
-|:----:|:-------:|-----:|:------:|
-|Master|Gitlab|[![build status](https://gitlab.com/gnutls/gnutls/badges/master/build.svg)](https://gitlab.com/gnutls/gnutls/commits/master)|[![coverage report](https://gitlab.com/gnutls/gnutls/badges/master/coverage.svg)](https://gnutls.gitlab.io/coverage/master)|
-|Master|Travis|[![build status](https://travis-ci.org/gnutls/gnutls.svg?branch=master)](https://travis-ci.org/gnutls/gnutls)|N/A|
-|3.5.x|Gitlab|[![build status](https://gitlab.com/gnutls/gnutls/badges/gnutls_3_5_x/build.svg)](https://gitlab.com/gnutls/gnutls/commits/gnutls_3_5_x)|[![coverage report](https://gitlab.com/gnutls/gnutls/badges/gnutls_3_5_x/coverage.svg)](https://gnutls.gitlab.io/coverage/3.5.x)|
-|3.5.x|Travis|[![build status](https://travis-ci.org/gnutls/gnutls.svg?branch=gnutls_3_5_x)](https://travis-ci.org/gnutls/gnutls)|N/A|
-|3.3.x|Gitlab|[![build status](https://gitlab.com/gnutls/gnutls/badges/gnutls_3_3_x/build.svg)](https://gitlab.com/gnutls/gnutls/commits/gnutls_3_3_x)|N/A|
+|Branch|CI system|Status|Test suite coverage|Fuzzer coverage|
+|:----:|:-------:|-----:|:------:|:-------------:|
+|Master/3.6.x|Gitlab|[![build status](https://gitlab.com/gnutls/gnutls/badges/master/pipeline.svg)](https://gitlab.com/gnutls/gnutls/commits/master)|[![coverage report](https://gitlab.com/gnutls/gnutls/badges/master/coverage.svg)](https://gnutls.gitlab.io/coverage/master)|[![Fuzzer coverage report](https://gnutls.gitlab.io/coverage/master-fuzz/badge.svg)](https://gnutls.gitlab.io/coverage/master-fuzz)|
+|Master/3.6.x|Travis|[![build status](https://travis-ci.org/gnutls/gnutls.svg?branch=master)](https://travis-ci.org/gnutls/gnutls)|N/A|N/A|
 
 
 # GnuTLS -- Information for developers
 
 GnuTLS implements the TLS/SSL (Transport Layer Security aka Secure
 Sockets Layer) protocol.  Additional information can be found at
-[www.gnutls.org](http://www.gnutls.org/).
+[www.gnutls.org](https://www.gnutls.org/).
 
 This file contains instructions for developers and advanced users that
 want to build from version controlled sources. See [INSTALL.md](INSTALL.md)
@@ -21,30 +18,35 @@ for building released versions.
 
 We require several tools to check out and build the software, including:
 
-* [Make](http://www.gnu.org/software/make/)
-* [Automake](http://www.gnu.org/software/automake/) (use 1.11.3 or later)
-* [Autoconf](http://www.gnu.org/software/autoconf/)
-* [Autogen](http://www.gnu.org/software/autogen/) (use 5.16 or later)
-* [Libtool](http://www.gnu.org/software/libtool/)
-* [Gettext](http://www.gnu.org/software/gettext/)
-* [Texinfo](http://www.gnu.org/software/texinfo/)
-* [Tar](http://www.gnu.org/software/tar/)
-* [Gzip](http://www.gnu.org/software/gzip/)
-* [Texlive & epsf](http://www.tug.org/texlive/) (for PDF manual)
-* [GTK-DOC](http://www.gtk.org/gtk-doc/) (for API manual)
-* [Git](http://git-scm.com/)
-* [Perl](http://www.cpan.org/)
-* [Nettle](http://www.lysator.liu.se/~nisse/nettle/)
-* [Guile](http://www.gnu.org/software/guile/)
-* [p11-kit](http://p11-glue.freedesktop.org/p11-kit.html)
-* [gperf](http://www.gnu.org/software/gperf/)
+* [Make](https://www.gnu.org/software/make/)
+* [Automake](https://www.gnu.org/software/automake/) (use 1.11.3 or later)
+* [Autoconf](https://www.gnu.org/software/autoconf/)
+* [Autogen](https://www.gnu.org/software/autogen/) (use 5.16 or later)
+* [Libtool](https://www.gnu.org/software/libtool/)
+* [Gettext](https://www.gnu.org/software/gettext/)
+* [Texinfo](https://www.gnu.org/software/texinfo/)
+* [Tar](https://www.gnu.org/software/tar/)
+* [Gzip](https://www.gnu.org/software/gzip/)
+* [Texlive & epsf](https://www.tug.org/texlive/) (for PDF manual)
+* [GTK-DOC](https://www.gtk.org/gtk-doc/) (for API manual)
+* [Git](https://git-scm.com/)
+* [Perl](https://www.cpan.org/)
+* [Nettle](https://www.lysator.liu.se/~nisse/nettle/)
+* [Guile](https://www.gnu.org/software/guile/)
+* [p11-kit](https://p11-glue.github.io/p11-glue/p11-kit.html)
+* [gperf](https://www.gnu.org/software/gperf/)
 * [libtasn1](https://www.gnu.org/software/libtasn1/) (optional)
 * [Libidn2](https://www.gnu.org/software/libidn/#libidn2) (optional, for internationalization of DNS, IDNA 2008)
-* [Libunistring](http://www.gnu.org/software/libunistring/) (optional, for internationalization)
-* [AWK](http://www.gnu.org/software/awk/) (for make dist, pmccabe2html)
-* [bison](http://www.gnu.org/software/bison) (for datetime parser in certtool)
+* [Libunistring](https://www.gnu.org/software/libunistring/) (optional, for internationalization)
+* [AWK](https://www.gnu.org/software/awk/) (for make dist, pmccabe2html)
+* [bison](https://www.gnu.org/software/bison) (for datetime parser in certtool)
 * [libunbound](https://unbound.net/) (for DANE support)
-* [abi-compliance-checker](http://ispras.linuxbase.org/index.php/ABI_compliance_checker) (for make dist)
+* [libabigail](https://pagure.io/libabigail/) (for abi comparison in make dist)
+* [tcsd](https://trousers.sourceforge.net/) (for TPM support; optional)
+* [swtpm](https://github.com/stefanberger/swtpm) (for TPM test; optional)
+* [ncat](https://nmap.org/download.html) (for TPM test; optional)
+* [tpm-tools](https://trousers.sourceforge.net/) (for TPM test; optional)
+* [expect](https://core.tcl.tk/expect/index) (for TPM test; optional)
 
 The required software is typically distributed with your operating
 system, and the instructions for installing them differ.  Here are
@@ -52,19 +54,22 @@ some hints:
 
 Debian/Ubuntu:
 ```
-apt-get install -y git-core autoconf libtool gettext autopoint
+apt-get install -y dash git-core autoconf libtool gettext autopoint
 apt-get install -y automake autogen nettle-dev libp11-kit-dev libtspi-dev libunistring-dev
-apt-get install -y guile-2.0-dev libtasn1-6-dev libidn2-0-dev gawk gperf
-apt-get install -y libunbound-dev dns-root-data bison help2man gtk-doc-tools
+apt-get install -y guile-2.2-dev libtasn1-6-dev libidn2-0-dev gawk gperf
+apt-get install -y libunbound-dev dns-root-data bison gtk-doc-tools
 apt-get install -y texinfo texlive texlive-generic-recommended texlive-extra-utils
 ```
 
+__NOTE:__ Some software versions might not be available in older releases, e.g. `nettle-dev`. 
+Available backport repos, APT-Pinning or source code compilating can be used to install these versions (and dependencies) from a newer release.
+
 Fedora/RHEL:
 ```
-yum install -y git autoconf libtool gettext-devel automake autogen
+yum install -y dash git autoconf libtool gettext-devel automake autogen patch
 yum install -y nettle-devel p11-kit-devel autogen-libopts-devel libunistring-devel
-yum install -y trousers-devel guile-devel libtasn1-devel libidn2-devel gawk gperf
-yum install -y libtasn1-tools unbound-devel bison help2man gtk-doc texinfo texlive
+yum install -y trousers-devel guile22-devel libtasn1-devel libidn2-devel gawk gperf
+yum install -y libtasn1-tools unbound-devel bison gtk-doc texinfo texlive
 ```
 
 Sometimes, you may need to install more recent versions of Automake,
@@ -72,26 +77,34 @@ Nettle, P11-kit and Autogen, which you will need to build from sources.
 
 Dependencies that are used during make check or make dist are listed below.
 Moreover, for basic interoperability testing you may want to install openssl
-and polarssl.
+and mbedtls.
 
-* [Valgrind](http://valgrind.org/) (optional)
+* [Valgrind](https://valgrind.org/) (optional)
 * [Libasan](https://gcc.gnu.org//) (optional)
-* [datefudge](http://packages.debian.org/datefudge) (optional)
-* [nodejs](http://nodejs.org/) (needed for certain test cases)
-* [softhsm](http://www.opendnssec.org/softhsm/) (for testing smart card support)
-* [dieharder](http://www.phy.duke.edu/~rgb/General/dieharder.php) (for testing PRNG)
-* [lcov](http://linux-test-project.github.io/) (for code coverage)
+* [datefudge](https://packages.debian.org/datefudge) (optional)
+* [nodejs](https://nodejs.org/) (needed for certain test cases)
+* [softhsm](https://www.opendnssec.org/softhsm/) (for testing smart card support)
+* [dieharder](https://www.phy.duke.edu/~rgb/General/dieharder.php) (for testing PRNG)
+* [lcov](https://linux-test-project.github.io/) (for code coverage)
+* [util-linux](https://github.com/karelzak/util-linux) or just [lscpu](https://github.com/NanXiao/lscpu) (for CPU feature detection)
+* [libev](hhttp://software.schmorp.de/pkg/libev.html) (for testing)
 
 Debian/Ubuntu:
 ```
-apt-get install -y valgrind libasan1 libubsan0 nodejs softhsm2 datefudge lcov libssl-dev libcmocka-dev
-apt-get install -y dieharder libpolarssl-runtime openssl abi-compliance-checker socat net-tools ppp
+apt-get install -y valgrind nodejs softhsm2 datefudge lcov libssl-dev libcmocka-dev expect libev-dev
+apt-get install -y dieharder openssl abigail-tools socat net-tools ppp lockfile-progs util-linux
+```
+
+__NOTE:__ `libubsan0` and `libasan1` are required on older versions of Ubuntu <= 16.04. This packages must be manually added on these versions:
+
+```
+apt-get install -y v libubsan0 libasan1
 ```
 
 Fedora/RHEL:
 ```
-yum install -y valgrind libasan libasan-static libubsan nodejs softhsm datefudge lcov openssl-devel
-yum install -y dieharder mbedtls-utils openssl abi-compliance-checker libcmocka-devel socat
+yum install -y valgrind libasan libasan-static libubsan nodejs softhsm datefudge lcov openssl-devel expect libev-devel
+yum install -y dieharder mbedtls-utils openssl libabigail libcmocka-devel socat lockfile-progs util-linux
 ```
 
 
@@ -100,13 +113,13 @@ To download the version controlled sources:
 ```
 $ git clone https://gitlab.com/gnutls/gnutls.git
 $ cd gnutls
-$ git submodule update --init
 ```
 
-The next step is to run autoreconf (etc) and then ./configure:
+The next step is to bootstrap and ./configure:
 
 ```
-$ make bootstrap
+$ ./bootstrap
+$ ./configure
 ```
 
 When built this way, some developer defaults will be enabled.  See

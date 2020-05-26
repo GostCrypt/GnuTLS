@@ -16,7 +16,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>
  *
  */
 
@@ -28,7 +28,6 @@
 #include "dh.h"
 #include "debug.h"
 #include "algorithms.h"
-#include "compress.h"
 #include "cipher.h"
 #include "buffers.h"
 #include "kx.h"
@@ -36,7 +35,7 @@
 #include "num.h"
 #include "hash_int.h"
 #include "db.h"
-#include "extensions.h"
+#include "hello_ext.h"
 #include "auth.h"
 #include "sslv2_compat.h"
 #include "constate.h"
@@ -75,7 +74,7 @@ _gnutls_handshake_select_v2_suite(gnutls_session_t session,
 		}
 	}
 
-	ret = _gnutls_server_select_suite(session, _data, _datalen);
+	ret = _gnutls_server_select_suite(session, _data, _datalen, 0);
 	gnutls_free(_data);
 
 	return ret;
@@ -88,15 +87,15 @@ _gnutls_handshake_select_v2_suite(gnutls_session_t session,
  */
 int
 _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
-			     unsigned int datalen)
+			     unsigned int len)
 {
 	uint16_t session_id_len = 0;
 	int pos = 0;
 	int ret = 0, sret = 0;
 	uint16_t sizeOfSuites;
-	gnutls_protocol_t adv_version;
 	uint8_t rnd[GNUTLS_RANDOM_SIZE], major, minor;
-	int len = datalen;
+	int neg_version;
+	const version_entry_st *vers;
 	uint16_t challenge;
 	uint8_t session_id[GNUTLS_MAX_SESSION_ID_SIZE];
 
@@ -110,13 +109,17 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 	minor = data[pos + 1];
 	set_adv_version(session, major, minor);
 
-	adv_version = _gnutls_version_get(major, minor);
-
-	ret = _gnutls_negotiate_version(session, adv_version, major, minor);
+	ret = _gnutls_negotiate_version(session, major, minor, 0);
 	if (ret < 0) {
 		gnutls_assert();
 		return ret;
 	}
+
+	vers = get_version(session);
+	if (vers == NULL)
+		return gnutls_assert_val(GNUTLS_E_UNSUPPORTED_VERSION_PACKET);
+
+	neg_version = vers->id;
 
 	pos += 2;
 
@@ -147,7 +150,7 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 
 	/* call the user hello callback
 	 */
-	ret = _gnutls_user_hello_func(session, adv_version, major, minor);
+	ret = _gnutls_user_hello_func(session, major, minor);
 	if (ret < 0) {
 		if (ret == GNUTLS_E_AGAIN || ret == GNUTLS_E_INTERRUPTED) {
 			sret = GNUTLS_E_INT_RET_0;
@@ -174,8 +177,7 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 	 */
 	if (_gnutls_get_kx_cred
 	    (session,
-	     _gnutls_cipher_suite_get_kx_algo(session->security_parameters.
-					      cipher_suite)) == NULL) {
+	     session->security_parameters.cs->kx_algorithm) == NULL) {
 		gnutls_assert();
 		return GNUTLS_E_INSUFFICIENT_CREDENTIALS;
 	}
@@ -185,9 +187,8 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 	 * handshake functions are read from there;
 	 */
 	session->internals.auth_struct =
-	    _gnutls_kx_auth_struct(_gnutls_cipher_suite_get_kx_algo
-				   (session->security_parameters.
-				    cipher_suite));
+	    _gnutls_kx_auth_struct(session->security_parameters.
+				    cs->kx_algorithm);
 	if (session->internals.auth_struct == NULL) {
 
 		_gnutls_handshake_log
@@ -209,12 +210,10 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 	memcpy(&rnd[GNUTLS_RANDOM_SIZE - challenge], &data[pos],
 	       challenge);
 
-	ret = _gnutls_set_client_random(session, rnd);
-	if (ret < 0)
-		return gnutls_assert_val(ret);
+	_gnutls_set_client_random(session, rnd);
 
 	/* generate server random value */
-	ret = _gnutls_set_server_random(session, NULL);
+	ret = _gnutls_gen_server_random(session, neg_version);
 	if (ret < 0)
 		return gnutls_assert_val(ret);
 
@@ -242,16 +241,14 @@ _gnutls_read_client_hello_v2(gnutls_session_t session, uint8_t * data,
 		session->internals.resumed = RESUME_TRUE;
 		return 0;
 	} else {
-		_gnutls_generate_session_id(session->security_parameters.
-					    session_id,
-					    &session->security_parameters.
-					    session_id_size);
+		ret = _gnutls_generate_session_id(
+			session->security_parameters.session_id,
+			&session->security_parameters.session_id_size);
+		if (ret < 0)
+			return gnutls_assert_val(ret);
+
 		session->internals.resumed = RESUME_FALSE;
 	}
-
-	ret = _gnutls_set_compression(session, GNUTLS_COMP_NULL);
-	if (ret < 0)
-		return gnutls_assert_val(ret);
 
 	return sret;
 }

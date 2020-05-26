@@ -2,10 +2,710 @@ GnuTLS NEWS -- History of user-visible changes.                -*- outline -*-
 Bug numbers referenced in this log correspond to bug numbers at our issue tracker,
 available at https://gitlab.com/gnutls/gnutls/issues
 Copyright (C) 2000-2016 Free Software Foundation, Inc.
-Copyright (C) 2013-2016 Nikos Mavrogiannopoulos
+Copyright (C) 2013-2019 Nikos Mavrogiannopoulos
 See the end for copying conditions.
 
-* Version 3.6.0 (unreleased)
+* Version 3.6.14 (unreleased)
+
+** API and ABI modifications:
+GNUTLS_CIPHER_AES_128_SIV: Added
+GNUTLS_CIPHER_AES_256_SIV: Added
+gnutls_pkcs7_print_signature_info: Added
+
+* Version 3.6.13 (released 2020-03-31)
+
+** libgnutls: Fix a DTLS-protocol regression (caused by TLS1.3 support), since 3.6.3.
+   The DTLS client would not contribute any randomness to the DTLS negotiation,
+   breaking the security guarantees of the DTLS protocol (#960)
+   [GNUTLS-SA-2020-03-31, CVSS: high]
+
+** libgnutls: Added new APIs to access KDF algorithms (#813).
+
+** libgnutls: Added new callback gnutls_keylog_func that enables a custom
+   logging functionality.
+
+** libgnutls: Added support for non-null terminated usernames in PSK
+   negotiation (#586).
+
+** gnutls-cli-debug: Improved support for old servers that only support
+   SSL 3.0.
+
+** API and ABI modifications:
+gnutls_hkdf_extract: Added
+gnutls_hkdf_expand: Added
+gnutls_pbkdf2: Added
+gnutls_session_get_keylog_function: Added
+gnutls_session_set_keylog_function: Added
+gnutls_prf_hash_get: Added
+gnutls_psk_server_get_username2: Added
+gnutls_psk_set_client_credentials2: Added
+gnutls_psk_set_client_credentials_function2: Added
+gnutls_psk_set_server_credentials_function2: Added
+
+
+* Version 3.6.12 (released 2020-02-01)
+
+** libgnutls: Introduced TLS session flag (gnutls_session_get_flags())
+   to identify sessions that client request OCSP status request (#829).
+
+** libgnutls: Added support for X448 key exchange (RFC 7748) and Ed448
+   signature algorithm (RFC 8032) under TLS (#86).
+
+** libgnutls: Added the default-priority-string option to system configuration;
+   it allows overriding the compiled-in default-priority-string.
+
+** libgnutls: Added support for GOST CNT_IMIT ciphersuite (as defined by
+   draft-smyshlyaev-tls12-gost-suites-07).
+   By default this ciphersuite is disabled. It can be enabled by adding
+   +GOST to priority string. In the future this priority string may enable
+   other GOST ciphersuites as well.  Note, that server will fail to negotiate
+   GOST ciphersuites if TLS 1.3 is enabled both on a server and a client. It
+   is recommended for now to disable TLS 1.3 in setups where GOST ciphersuites
+   are enabled on GnuTLS-based servers.
+
+** libgnutls: added priority shortcuts for different GOST categories like
+   CIPHER-GOST-ALL, MAC-GOST-ALL, KX-GOST-ALL, SIGN-GOST-ALL, GROUP-GOST-ALL.
+
+** libgnutls: Reject certificates with invalid time fields. That is we reject
+   certificates with invalid characters in Time fields, or invalid time formatting
+   To continue accepting the invalid form compile with --disable-strict-der-time
+   (#207, #870).
+
+** libgnutls: Reject certificates which contain duplicate extensions. We were
+   previously printing warnings when printing such a certificate, but that is
+   not always sufficient to flag such certificates as invalid. Instead we now
+   refuse to import them (#887).
+
+** libgnutls: If a CA is found in the trusted list, check in addition to
+   time validity, whether the algorithms comply to the expected level prior
+   to accepting it. This addresses the problem of accepting CAs which would
+   have been marked as insecure otherwise (#877).
+
+** libgnutls: The min-verification-profile from system configuration applies
+   for all certificate verifications, not only under TLS. The configuration can
+   be overriden using the GNUTLS_SYSTEM_PRIORITY_FILE environment variable.
+
+** libgnutls: The stapled OCSP certificate verification adheres to the convention
+   used throughout the library of setting the 'GNUTLS_CERT_INVALID' flag.
+
+** libgnutls: On client side only send OCSP staples if they have been requested
+   by the server, and on server side always advertise that we support OCSP stapling
+   (#876).
+
+** libgnutls: Introduced the gnutls_ocsp_req_const_t which is compatible
+   with gnutls_ocsp_req_t but const.
+
+** certtool: Added the --verify-profile option to set a certificate
+   verification profile. Use '--verify-profile low' for certificate verification
+   to apply the 'NORMAL' verification profile.
+
+** certtool: The add_extension template option is considered even when generating
+   a certificate from a certificate request.
+
+** API and ABI modifications:
+GNUTLS_SFLAGS_CLI_REQUESTED_OCSP: Added
+GNUTLS_SFLAGS_SERV_REQUESTED_OCSP: Added
+gnutls_ocsp_req_const_t: Added
+
+
+* Version 3.6.11 (released 2019-12-01)
+
+** libgnutls: Use KERN_ARND for the system random number generator on NetBSD.
+   This syscall provides an endless stream of random numbers from the kernel's
+   ChaCha20-based random number generator, without blocking or requiring an open file
+   descriptor.
+
+** libgnutls: Corrected issue with TLS 1.2 session ticket handling as client
+   during resumption (#841).
+
+** libgnutls: gnutls_base64_decode2() succeeds decoding the empty string to
+   the empty string. This is a behavioral change of the API but it conforms
+   to the RFC4648 expectations (#834).
+
+** libgnutls: Fixed AES-CFB8 implementation, when input is shorter than
+   the block size. Fix backported from nettle.
+
+** certtool: CRL distribution points will be set in CA certificates even when
+   non self-signed (#765).
+
+** gnutls-cli/serv: added raw public-key handling capabilities (RFC7250).
+   Key material can be set via the --rawpkkeyfile and --rawpkfile flags.
+
+** API and ABI modifications:
+No changes since last version.
+
+
+* Version 3.6.10 (released 2019-09-29)
+
+** libgnutls: Added support for deterministic ECDSA/DSA (RFC6979)
+   Deterministic signing can be enabled by setting
+   GNUTLS_PRIVKEY_FLAG_REPRODUCIBLE when calling gnutls_privkey_sign_*()
+   functions (#94).
+
+** libgnutls: add gnutls_aead_cipher_encryptv2 and gnutls_aead_cipher_decryptv2
+   functions that will perform in-place encryption/decryption on data buffers (#718).
+
+** libgnutls: Corrected issue in gnutls_session_get_data2() which could fail under
+   TLS1.3, if a timeout callback was not set using gnutls_transport_set_pull_timeout_function()
+   (#823).
+
+** libgnutls: added interoperability tests with gnutls 2.12.x; addressed
+   issue with large record handling due to random padding (#811).
+
+** libgnutls: the server now selects the highest TLS protocol version,
+   if TLS 1.3 is enabled and the client advertises an older protocol version first (#837).
+
+** libgnutls: fix non-PIC assembly on i386 (#818).
+
+** libgnutls: added support for GOST 28147-89 cipher in CNT (GOST counter) mode
+   and MAC generation based on GOST 28147-89 (IMIT). For description of the
+   modes see RFC 5830. S-Box is id-tc26-gost-28147-param-Z (TC26Z) defined in
+   RFC 7836.
+
+** certtool: when outputting an encrypted private key do not insert the textual description
+   of it. This fixes a regression since 3.6.5 (#840).
+
+** API and ABI modifications:
+gnutls_aead_cipher_encryptv2: Added
+gnutls_aead_cipher_decryptv2: Added
+GNUTLS_CIPHER_GOST28147_TC26Z_CNT: Added
+GNUTLS_MAC_GOST28147_TC26Z_IMIT: Added
+
+* Version 3.6.9 (released 2019-07-25)
+
+** libgnutls: add gnutls_hash_copy/gnutls_hmac_copy functions that will create a copy
+   of digest or MAC context. Copying contexts for externally-registered digest and MAC
+   contexts is unupported (#787).
+
+** Marked the crypto implementation override APIs as deprecated. These APIs are rarely
+   used, are for a niche use case, but have significant side effects, such as preventing
+   any internal re-organization and extension of the internal cipher API. The APIs remain
+   functional though a compiler warning will be issued, and a future minor version update
+   may transform them to a no-op while keeping ABI compatibility (#789).
+
+** libgnutls: Added support for AES-GMAC, as a separate to GCM, MAC algorithm (#781).
+
+** libgnutls: gnutls_privkey_sign_hash2 now accepts the GNUTLS_PRIVKEY_SIGN_FLAG_TLS1_RSA
+   flag as documented. This makes it a complete replacement of gnutls_privkey_sign_hash().
+
+** libgnutls: Added support for Generalname registeredID.
+
+** The priority configuration was enhanced to allow more elaborate
+   system-wide configuration of the library (#587).
+   The following changes were included:
+    - The file is read as an ini file with '#' indicating a comment.
+    - The section "[priorities]" or global follows the existing semantics of
+      the configuration file, and allows to specify system-wide priority strings
+      which are accessed with the '@' prefix.
+    - The section "[overrides]" is added with the parameters "insecure-hash",
+      "insecure-sig", "insecure-sig-for-cert", "disabled-curve",
+      "disabled-version", "min-verification-profile", "tls-disabled-cipher",
+      "tls-disabled-mac", "tls-disabled-group", "tls-disabled-kx", which prohibit
+      specific algorithms or options globally. Existing algorithms in the
+      library can be marked as disabled and insecure, but no hard-coded
+      insecure algorithm can be marked as secure (so that the configuration
+      cannot be abused to make the system vulnerable).
+    - Unknown sections or options are skipped with a debug message, unless
+      the GNUTLS_SYSTEM_PRIORITY_FAIL_ON_INVALID environment parameter is
+      set to 1.
+
+** libgnutls: Added new flag for GNUTLS_CPUID_OVERRIDE
+    - 0x20: Enable SHA_NI instruction set
+
+** API and ABI modifications:
+gnutls_crypto_register_cipher: Deprecated
+gnutls_crypto_register_aead_cipher: Deprecated
+gnutls_crypto_register_digest: Deprecated
+gnutls_crypto_register_mac: Deprecated
+gnutls_get_system_config_file: Added
+gnutls_hash_copy: Added
+gnutls_hmac_copy: Added
+GNUTLS_MAC_AES_GMAC_128: Added
+GNUTLS_MAC_AES_GMAC_192: Added
+GNUTLS_MAC_AES_CMAC_256: Added
+GNUTLS_SAN_REGISTERED_ID: Added
+
+
+* Version 3.6.8 (released 2019-05-28)
+
+** libgnutls: Added gnutls_prf_early() function to retrieve early keying
+   material (#329)
+
+** libgnutls: Added support for AES-XTS cipher (#354)
+
+** libgnutls: Fix calculation of Streebog digests (incorrect carry operation in
+   512 bit addition)
+
+** libgnutls: During Diffie-Hellman operations in TLS, verify that the peer's
+   public key is on the right subgroup (y^q=1 mod p), when q is available (under
+   TLS 1.3 and under earlier versions when RFC7919 parameters are used).
+
+** libgnutls: the gnutls_srp_set_server_credentials_function can now be used
+   with the 8192 parameters as well (#995).
+
+** libgnutls: Fixed bug preventing the use of gnutls_pubkey_verify_data2() and
+   gnutls_pubkey_verify_hash2() with the GNUTLS_VERIFY_DISABLE_CA_SIGN flag (#754)
+
+** libgnutls: The priority string option %ALLOW_SMALL_RECORDS was added to allow
+   clients to communicate with the server advertising smaller limits than 512
+
+** libgnutls: Apply STD3 ASCII rules in gnutls_idna_map() to prevent
+   hostname/domain crafting via IDNA conversion (#720)
+
+** certtool: allow the digital signature key usage flag in CA certificates.
+   Previously certtool would ignore this flag for CA certificates even if
+   specified (#767)
+
+** gnutls-cli/serv: added the --keymatexport and --keymatexportsize options.
+   These allow testing the RFC5705 using these tools.
+
+** API and ABI modifications:
+gnutls_prf_early: Added
+gnutls_record_set_max_recv_size: Added
+gnutls_dh_params_import_raw3: Added
+gnutls_ffdhe_2048_group_q: Added
+gnutls_ffdhe_3072_group_q: Added
+gnutls_ffdhe_4096_group_q: Added
+gnutls_ffdhe_6144_group_q: Added
+gnutls_ffdhe_8192_group_q: Added
+
+
+* Version 3.6.7 (released 2019-03-27)
+
+** libgnutls, gnutls tools: Every gnutls_free() will automatically set
+   the free'd pointer to NULL. This prevents possible use-after-free and
+   double free issues. Use-after-free will be turned into NULL dereference.
+   The counter-measure does not extend to applications using gnutls_free().
+
+** libgnutls: Fixed a memory corruption (double free) vulnerability in the
+   certificate verification API. Reported by Tavis Ormandy; addressed with
+   the change above. [GNUTLS-SA-2019-03-27, #694]
+
+** libgnutls: Fixed an invalid pointer access via malformed TLS1.3 async messages;
+   Found using tlsfuzzer. [GNUTLS-SA-2019-03-27, #704]
+
+** libgnutls: enforce key usage limitations on certificates more actively.
+   Previously we would enforce it for TLS1.2 protocol, now we enforce it
+   even when TLS1.3 is negotiated, or on client certificates as well. When
+   an inappropriate for TLS1.3 certificate is seen on the credentials structure
+   GnuTLS will disable TLS1.3 support for that session (#690).
+
+** libgnutls: the default number of tickets sent under TLS 1.3 was increased to
+   two. This makes it easier for clients which perform multiple connections
+   to the server to use the tickets sent by a default server.
+
+** libgnutls: enforce the equality of the two signature parameters fields in
+   a certificate. We were already enforcing the signature algorithm, but there
+   was a bug in parameter checking code.
+
+** libgnutls: fixed issue preventing sending and receiving from different
+   threads when false start was enabled (#713).
+
+** libgnutls: the flag GNUTLS_PKCS11_OBJ_FLAG_LOGIN_SO now implies a writable
+   session, as non-writeable security officer sessions are undefined in PKCS#11
+   (#721).
+
+** libgnutls: no longer send downgrade sentinel in TLS 1.3.
+   Previously the sentinel value was embedded to early in version
+   negotiation and was sent even on TLS 1.3. It is now sent only when
+   TLS 1.2 or earlier is negotiated (#689).
+
+** gnutls-cli: Added option --logfile to redirect informational messages output.
+
+** API and ABI modifications:
+No changes since last version.
+
+
+* Version 3.6.6 (released 2019-01-25)
+
+** libgnutls: gnutls_pubkey_import_ecc_raw() was fixed to set the number bits
+   on the public key (#640).
+
+** libgnutls: Added support for raw public-key authentication as defined in RFC7250.
+   Raw public-keys can be negotiated by enabling the corresponding certificate
+   types via the priority strings. The raw public-key mechanism must be explicitly
+   enabled via the GNUTLS_ENABLE_RAWPK init flag (#26, #280).
+
+** libgnutls: When on server or client side we are sending no extensions we do
+   not set an empty extensions field but we rather remove that field competely.
+   This solves a regression since 3.5.x and improves compatibility of the server
+   side with certain clients.
+
+** libgnutls: We no longer mark RSA keys in PKCS#11 tokens as RSA-PSS capable if
+   the CKA_SIGN is not set (#667).
+
+** libgnutls: The priority string option %NO_EXTENSIONS was improved to completely
+   disable extensions at all cases, while providing a functional session. This
+   also implies that when specified, TLS1.3 is disabled.
+
+** libgnutls: GNUTLS_X509_NO_WELL_DEFINED_EXPIRATION was marked as deprecated.
+   The previous definition was non-functional (#609).
+
+** API and ABI modifications:
+GNUTLS_ENABLE_RAWPK: Added
+GNUTLS_ENABLE_CERT_TYPE_NEG: Removed (was no-op; replaced by GNUTLS_ENABLE_RAWPK) 
+GNUTLS_X509_NO_WELL_DEFINED_EXPIRATION: Deprecated
+GNUTLS_PCERT_NO_CERT: Deprecated
+
+
+* Version 3.6.5 (released 2018-12-01)
+
+** libgnutls: Provide the option of transparent re-handshake/reauthentication
+   when the GNUTLS_AUTO_REAUTH flag is specified in gnutls_init() (#571).
+
+** libgnutls: Added support for TLS 1.3 zero round-trip (0-RTT) mode (#127)
+
+** libgnutls: The priority functions will ignore and not enable TLS1.3 if
+   requested with legacy TLS versions enabled but not TLS1.2. That is because
+   if such a priority string is used in the client side (e.g., TLS1.3+TLS1.0 enabled)
+   servers which do not support TLS1.3 will negotiate TLS1.2 which will be
+   rejected by the client as disabled (#621).
+
+** libgnutls: Change RSA decryption to use a new side-channel silent function.
+   This addresses a security issue where memory access patterns as well as timing
+   on the underlying Nettle rsa-decrypt function could lead to new Bleichenbacher
+   attacks. Side-channel resistant code is slower due to the need to mask
+   access and timings. When used in TLS the new functions cause RSA based
+   handshakes to be between 13% and 28% slower on average (Numbers are indicative,
+   the tests where performed on a relatively modern Intel CPU, results vary
+   depending on the CPU and architecture used). This change makes nettle 3.4.1
+   the minimum requirement of gnutls (#630). [CVSS: medium]
+
+** libgnutls: gnutls_priority_init() and friends, allow the CTYPE-OPENPGP keyword
+   in the priority string. It is only accepted as legacy option and is ignored.
+
+** libgnutls: Added support for EdDSA under PKCS#11 (#417)
+
+** libgnutls: Added support for AES-CFB8 cipher (#357)
+
+** libgnutls: Added support for AES-CMAC MAC (#351)
+
+** libgnutls: In two previous versions GNUTLS_CIPHER_GOST28147_CPB/CPC/CPD_CFB ciphers
+   have incorrectly used CryptoPro-A S-BOX instead of proper (CryptoPro-B/-C/-D
+   S-BOXes). They are fixed now.
+
+** libgnutls: Added support for GOST key unmasking and unwrapped GOST private
+   keys parsing, as specified in R 50.1.112-2016.
+
+** gnutls-serv: It applies the default settings when no --priority option is given,
+   using gnutls_set_default_priority().
+
+** p11tool: Fix initialization of security officer's PIN with the --initialize-so-pin
+   option (#561)
+
+** certtool: Add parameter --no-text that prevents certtool from outputting
+   text before PEM-encoded private key, public key, certificate, CRL or CSR.
+
+** API and ABI modifications:
+GNUTLS_AUTO_REAUTH: Added
+GNUTLS_CIPHER_AES_128_CFB8: Added
+GNUTLS_CIPHER_AES_192_CFB8: Added
+GNUTLS_CIPHER_AES_256_CFB8: Added
+GNUTLS_MAC_AES_CMAC_128: Added
+GNUTLS_MAC_AES_CMAC_256: Added
+gnutls_record_get_max_early_data_size: Added
+gnutls_record_send_early_data: Added
+gnutls_record_recv_early_data: Added
+gnutls_db_check_entry_expire_time: Added
+gnutls_anti_replay_set_add_function: Added
+gnutls_anti_replay_init: Added
+gnutls_anti_replay_deinit: Added
+gnutls_anti_replay_set_window: Added
+gnutls_anti_replay_enable: Added
+gnutls_privkey_decrypt_data2: Added
+
+
+* Version 3.6.4 (released 2018-09-24)
+
+** libgnutls: Added the final (RFC8446) version numbering of the TLS1.3 protocol.
+
+** libgnutls: Corrected regression since 3.6.3 in the callbacks set with
+   gnutls_certificate_set_retrieve_function() which could not handle the case where
+   no certificates were returned, or the callbacks were set to NULL (see #528).
+
+** libgnutls: gnutls_handshake() on server returns early on handshake when no
+   certificate is presented by client and the gnutls_init() flag GNUTLS_ENABLE_EARLY_START
+   is specified.
+
+** libgnutls: Added session ticket key rotation on server side with TOTP.
+   The key set with gnutls_session_ticket_enable_server() is used as a
+   master key to generate time-based keys for tickets. The rotation
+   relates to the gnutls_db_set_cache_expiration() period.
+
+** libgnutls: The 'record size limit' extension is added and preferred to the
+   'max record size' extension when possible.
+
+** libgnutls: Provide a more flexible PKCS#11 search of trust store certificates.
+   This addresses the problem where the CA certificate doesn't have a subject key
+   identifier whereas the end certificates have an authority key identifier (#569)
+
+** libgnutls: gnutls_privkey_export_gost_raw2(), gnutls_privkey_import_gost_raw(),
+   gnutls_pubkey_export_gost_raw2(), gnutls_pubkey_import_gost_raw() import
+   and export GOST parameters in the "native" little endian format used for these
+   curves. This is an intentional incompatible change with 3.6.3.
+
+** libgnutls: Added support for seperately negotiating client and server certificate types
+   as defined in RFC7250. This mechanism must be explicitly enabled via the
+   GNUTLS_ENABLE_CERT_TYPE_NEG flag in gnutls_init().
+
+** gnutls-cli: enable CRL validation on startup (#564)
+
+** API and ABI modifications:
+GNUTLS_ENABLE_EARLY_START: Added
+GNUTLS_ENABLE_CERT_TYPE_NEG: Added
+GNUTLS_TL_FAIL_ON_INVALID_CRL: Added
+GNUTLS_CERTIFICATE_VERIFY_CRLS: Added
+gnutls_ctype_target_t: New enumeration
+gnutls_record_set_max_early_data_size: Added
+gnutls_certificate_type_get2: Added
+gnutls_priority_certificate_type_list2: Added
+gnutls_ffdhe_6144_group_prime: Added
+gnutls_ffdhe_6144_group_generator: Added
+gnutls_ffdhe_6144_key_bits: Added
+
+
+* Version 3.6.3 (released 2018-07-16)
+
+** libgnutls: Introduced support for draft-ietf-tls-tls13-28. It includes version
+   negotiation, post handshake authentication, length hiding, multiple OCSP support,
+   consistent ciphersuite support across protocols, hello retry requests, ability
+   to adjust key shares via gnutls_init() flags, certificate authorities extension,
+   and key usage limits. TLS1.3 draft-28 support can be enabled by default if
+   the option --enable-tls13-support is given to configure script.
+
+** libgnutls: Apply compatibility settings for existing applications running with TLS1.2 or
+   earlier and TLS 1.3. When SRP or NULL ciphersuites are specified in priority strings
+   TLS 1.3 is will be disabled. When Anonymous ciphersuites are specified in priority
+   strings, then TLS 1.3 negotiation will be disabled if the session is associated
+   only with an anonymous credentials structure.
+
+** Added support for Russian Public Key Infrastructure according to RFCs 4491/4357/7836.
+   This adds support for using GOST keys for digital signatures and under PKCS#7, PKCS#12,
+   and PKCS#8 standards. In particular added elliptic curves GOST R 34.10-2001 CryptoProA
+   256-bit curve (RFC 4357), GOST R 34.10-2001 CryptoProXchA 256-bit curve (RFC 4357),
+   and GOST R 34.10-2012 TC26-512-A 512-bit curve (RFC 7836).
+
+** Provide a uniform cipher list across supported TLS protocols; the CAMELLIA ciphers
+   as well as ciphers utilizing HMAC-SHA384 and SHA256 have been removed from the default
+   priority strings, as they are undefined under TLS1.3 and they provide no advantage
+   over other options in earlier protocols.
+
+** The SSL 3.0 protocol is disabled on compile-time by default. It can be re-enabled
+   by specifying --enable-ssl3-support on configure script.
+
+** libgnutls: Introduced function to switch the current FIPS140-2 operational
+   mode, i.e., strict vs a more lax mode which will allow certain non FIPS140-2
+   operations.
+
+** libgnutls: Introduced low-level function to assist applications attempting client
+   hello extension parsing, prior to GnuTLS' parsing of the message.
+
+** libgnutls: When exporting an X.509 certificate avoid re-encoding if there are no
+   modifications to the certificate. That prevents DER re-encoding issues with incorrectly
+   encoded certificates, or other DER incompatibilities to affect a TLS session.
+   Relates with #403
+
+** libgnutls: on group exchange honor the %SERVER_PRECEDENCE and select the groups
+   which are preferred by the server. That unfortunately has complicated semantics
+   as TLS1.2 requires specific ordering of the groups based on the ciphersuite ordering,
+   which could make group order unpredictable if TLS1.3 is negotiated.
+
+** Improved counter-measures for TLS CBC record padding. Kenny Paterson, Eyal Ronen
+   and Adi Shamir reported that the existing counter-measures had certain issues and
+   were insufficient when the attacker has additional access to the CPU cache and
+   performs a chosen-plaintext attack. This affected the legacy CBC ciphersuites. [CVSS: medium]
+
+** Introduced the %FORCE_ETM priority string option. This option prevents the negotiation
+   of legacy CBC ciphersuites unless encrypt-then-mac is negotiated.
+
+** libgnutls: gnutls_privkey_import_ext4() was enhanced with the
+   GNUTLS_PRIVKEY_INFO_PK_ALGO_BITS flag.
+
+** libgnutls: gnutls_pkcs11_copy_secret_key, gnutls_pkcs11_copy_x509_privkey2,
+   gnutls_pkcs11_privkey_generate3 will mark objects as sensitive by default
+   unless GNUTLS_PKCS11_OBJ_FLAG_MARK_NOT_SENSITIVE is specified. This is an API
+   change for these functions which make them err towards safety.
+
+** libgnutls: improved aarch64 cpu features detection by using getauxval().
+
+** certtool: It is now possible to specify certificate and serial CRL numbers greater
+   than 2**63-2 as a hex-encoded string both when prompted and in a template file.
+   Default certificate serial numbers are now fully random. Default CRL
+   numbers include more random bits and are larger than in previous GnuTLS versions.
+   Since CRL numbers are required to be monotonic, specify suitable CRL numbers manually
+   if you intend to later downgrade to previous versions as it was not possible
+   to specify large CRL numbers in previous versions of certtool.
+
+** API and ABI modifications:
+gnutls_fips140_set_mode: Added
+gnutls_session_key_update: Added
+gnutls_ext_get_current_msg: Added
+gnutls_reauth: Added
+gnutls_ocsp_status_request_get2: Added
+gnutls_ocsp_resp_import2: Added
+gnutls_ocsp_resp_export2: Added
+gnutls_ocsp_resp_list_import2: Added
+gnutls_certificate_set_retrieve_function3: Added
+gnutls_certificate_set_ocsp_status_request_file2: Added
+gnutls_certificate_set_ocsp_status_request_mem: Added
+gnutls_certificate_get_ocsp_expiration: Added
+gnutls_record_send2: Added
+gnutls_ext_raw_parse: Added
+gnutls_x509_crt_list_import_url: Added
+gnutls_pcert_list_import_x509_file: Added
+gnutls_pkcs11_token_get_ptr: Added
+gnutls_pkcs11_obj_get_ptr: Added
+gnutls_session_ticket_send: Added
+gnutls_aead_cipher_encryptv: Added
+gnutls_gost_paramset_get_name: Added
+gnutls_gost_paramset_get_oid: Added
+gnutls_oid_to_gost_paramset: Added
+gnutls_decode_gost_rs_value: Added
+gnutls_encode_gost_rs_value: Added
+gnutls_pubkey_export_gost_raw2: Added
+gnutls_pubkey_import_gost_raw: Added
+gnutls_x509_crt_get_pk_gost_raw: Added
+gnutls_privkey_export_gost_raw2: Added
+gnutls_privkey_import_gost_raw: Added
+gnutls_x509_privkey_export_gost_raw: Added
+gnutls_x509_privkey_import_gost_raw: Added
+gnutls_set_default_priority_append: Added
+gnutls_priority_init2: Added
+GNUTLS_PRIVKEY_INFO_PK_ALGO_BITS: Added
+GNUTLS_PKCS11_OBJ_FLAG_MARK_NOT_SENSITIVE: Added
+
+
+* Version 3.6.2 (released 2018-02-16)
+
+** libgnutls: When verifying against a self signed certificate ignore issuer.
+   That is, ignore issuer when checking the issuer's parameters strength, resolving
+   issue #347 which caused self signed certificates to be additionally marked as of
+   insufficient security level.
+
+** libgnutls: Corrected MTU calculation for the CBC ciphersuites. The data
+   MTU calculation now, it correctly accounts for the fixed overhead due to
+   padding (as 1 byte), while at the same time considers the rest of the
+   padding as part of data MTU.
+
+** libgnutls: Address issue of loading of all PKCS#11 modules on startup
+   on systems with a PKCS#11 trust store (as opposed to a file trust store).
+   Introduced a multi-stage initialization which loads the trust modules, and
+   other modules are deferred for the first pure PKCS#11 request.
+
+** libgnutls: The SRP authentication will reject any parameters outside
+   RFC5054. This protects any client from potential MitM due to insecure
+   parameters. That also brings SRP in par with the RFC7919 changes to
+   Diffie-Hellman.
+
+** libgnutls: Added the 8192-bit parameters of SRP to the accepted parameters
+   for SRP authentication.
+
+** libgnutls: Addressed issue in the accelerated code affecting interoperability
+   with versions of nettle >= 3.4.
+
+** libgnutls: Addressed issue in the AES-GCM acceleration under aarch64.
+
+** libgnutls: Addressed issue in the AES-CBC acceleration under ssse3 (patch by
+   Vitezslav Cizek).
+
+** srptool: the --create-conf option no longer includes 1024-bit parameters.
+
+** p11tool: Fixed the deletion of objects in batch mode.
+
+** API and ABI modifications:
+gnutls_srp_8192_group_generator: Added
+gnutls_srp_8192_group_prime: Added
+
+
+* Version 3.6.1 (released 2017-10-21)
+
+** libgnutls: Fixed interoperability issue with openssl when safe renegotiation was
+   used. Resolves gitlab issue #259.
+
+** libgnutls: gnutls_x509_crl_sign, gnutls_x509_crt_sign,
+   gnutls_x509_crq_sign, were modified to sign with a better algorithm than
+   SHA1. They will now sign with an algorithm that corresponds to the security
+   level of the signer's key.
+
+** libgnutls: gnutls_x509_*_sign2() functions and gnutls_x509_*_privkey_sign()
+   accept GNUTLS_DIG_UNKNOWN (0) as a hash function option. That will signal
+   the function to auto-detect an appropriate hash algorithm to use.
+
+** libgnutls: Removed support for signature algorithms using SHA2-224 in TLS.
+   TLS 1.3 no longer uses SHA2-224 and it was never a widespread algorithm
+   in TLS 1.2. As such, no reason to keep supporting it.
+
+** libgnutls: Refuse to use client certificates containing disallowed
+   algorithms for a session. That reverts a change on 3.5.5, which allowed
+   a client to use DSA-SHA1 due to his old DSA certificate, without requiring him
+   to enable DSA-SHA1 (and thus make it acceptable for the server's certificate).
+   The previous approach was to allow a smooth move for client infrastructure
+   after the DSA algorithm became disabled by default, and is no longer necessary
+   as DSA is now being universally depracated.
+
+** libgnutls: Refuse to resume a session which had a different SNI advertised. That
+   improves RFC6066 support in server side. Reported by Thomas Klute.
+
+** p11tool: Mark all generated objects as sensitive by default.
+
+** p11tool: added options --sign-params and --hash. This allows testing
+   signature with multiple algorithms, including RSA-PSS.
+
+** API and ABI modifications:
+No changes since last version.
+
+
+* Version 3.6.0 (released 2017-08-21)
+
+** libgnutls: tlsfuzzer is part of the CI testsuite. This is a TLS testing and
+   fuzzying toolkit, allowing for corner case testing, and ensuring that the
+   behavior of the library will not change across releases.
+   https://github.com/tomato42/tlsfuzzer
+
+** libgnutls: Introduced a lock-free random generator which operates per-thread
+   and eliminates random-generator related bottlenecks in multi-threaded operation.
+   Resolves gitlab issue #141.
+   http://nmav.gnutls.org/2017/03/improving-by-simplifying-gnutls-prng.html
+
+** libgnutls: Replaced the Salsa20 random generator with one based on CHACHA.
+   The goal is to reduce code needed in cache (CHACHA is also used for TLS),
+   and the number of primitives used by the library. That does not affect the
+   AES-DRBG random generator used in FIPS140-2 mode.
+
+** libgnutls: Added support for RSA-PSS key type as well as signatures in
+   certificates, and TLS key exchange. Contributed by Daiki Ueno.
+   RSA-PSS signatures can be generated by RSA-PSS keys and normal RSA keys,
+   but not vice-versa.  The feature includes:
+     * RSA-PSS key generation and key handling (in PKCS#8 form)
+     * RSA-PSS key generation and key handling from PKCS#11 (with CKM_RSA_PKCS_PSS mech)
+     * Handling of RSA-PSS subjectPublicKeyInfo parameters, when present
+       in either the private key or certificate.
+     * RSA-PSS signing and verification of PKIX certificates
+     * RSA-PSS signing and verification of TLS 1.2 handshake
+     * RSA-PSS signing and verification of PKCS#7 structures
+     * RSA-PSS and RSA key combinations for TLS credentials. That is, when
+       multiple keys are supplied, RSA-PSS keys are preferred over RSA for RSA-PSS
+       TLS signatures, to contain risks of cross-protocol attacks between the algorithms.
+     * RSA-PSS key conversion to RSA PKCS#1 form (certtool --to-rsa)
+   Note that RSA-PSS signatures with SHA1 are (intentionally) not supported.
+
+** libgnutls: Added support for Ed25519 signing in certificates and TLS key
+   exchange following draft-ietf-tls-rfc4492bis-17.  The feature includes:
+     * Ed25519 key generation and key handling (in PKCS#8 form)
+     * Ed25519 signing and verification of PKIX certificates
+     * Ed25519 signing and verification of TLS 1.2 handshake
+     * Ed25519 signing and verification of PKCS#7 structures
+
+** libgnutls: Enabled X25519 key exchange by default, following draft-ietf-tls-rfc4492bis-17.
+
+** libgnutls: Added support for Diffie-Hellman group negotiation following RFC7919.
+   That makes the DH parameters negotiation more robust and less prone to errors
+   due to insecure parameters. Servers are no longer required to specific explicit
+   DH parameters, though if they do these parameters will be used. Group
+   selection can be done via priority strings. The introduced strings are
+   GROUP-ALL, GROUP-FFDHE2048, GROUP-FFDHE3072, GROUP-FFDHE4096 and
+   GROUP-FFDHE8192, as well as the corresponding to curves groups. Note that
+   the 6144 group from RFC7919 is not supported.
 
 ** libgnutls: Introduced various sanity checks on certificate import. Refuse
    to import certificates which have fractional seconds in Time fields, X.509v1
@@ -17,69 +717,128 @@ See the end for copying conditions.
    GNUTLS_X509_CRT_FLAG_IGNORE_SANITY which skips the certificate sanity
    checks on import.
 
-** libgnutls: Refuse gnutls_record_send() and gnutls_record_recv()
-   calls prior to handshake being complete. Addresses gitlab issue #158.
-
-** libgnutls: 3DES-CBC is no longer included in the default priorities
-   list. It has to be explicitly enabled, e.g., with a string like
-   "NORMAL:+3DES-CBC".
-
-** libgnutls: Introduced a lock-free random generator which operates per-thread
-   and eliminates random-generator related bottlenecks in multi-threaded operation.
-   Resolves gitlab issue #141.
-
 ** libgnutls: PKIX certificates with unknown critical extensions are rejected
    on verification with status GNUTLS_CERT_UNKNOWN_CRIT_EXTENSIONS. This
-   behavior can be overriden by providing the flag GNUTLS_VERIFY_IGNORE_UNKNOWN_CRIT_EXTENSIONS
+   behavior can be overridden by providing the flag GNUTLS_VERIFY_IGNORE_UNKNOWN_CRIT_EXTENSIONS
    to verification functions. Resolves gitlab issue #177.
-
-** libgnutls: OpenPGP authentication is disabled by default, and the resulting
-   library is ABI compatible (will openpgp related functions being stubs that fail
-   on invocation). The flag --enable-openpgp-authentication to configure will
-   enable OpenPGP authentication support.
 
 ** libgnutls: Refuse to generate a certificate with an illegal version, or an
    illegal serial number. That is, gnutls_x509_crt_set_version() and
    gnutls_x509_crt_set_serial(), will fail on input considered to be invalid
    in RFC5280.
 
-** libgnutls: SHA1 was removed from the trusted set of hashes. Verification
-   and other operations relying on SHA1 is now considered insecure and will
-   fail, unless flags intended to enable broken algorithms are set. This
-   can be reverted on compile time with the configure flag --enable-sha1-support.
+** libgnutls: Calls to gnutls_record_send() and gnutls_record_recv()
+   prior to handshake being complete are now refused. Addresses gitlab issue #158.
 
-** libgnutls: Added support for PKCS#12 files with no (zero length) salt used in their
+** libgnutls: Added support for PKCS#12 files with no salt (zero length) in their
    password encoding, and PKCS#12 files using SHA384 and SHA512 as MAC.
+
+** libgnutls: Exported functions to encode and decode DSA and ECDSA r,s values.
+
+** libgnutls: Added new callback setting function to gnutls_privkey_t for external
+   keys. The new function (gnutls_privkey_import_ext4), allows signing in addition
+   to previous algorithms (RSA PKCS#1 1.5, DSA, ECDSA), with RSA-PSS and Ed25519
+   keys.
 
 ** libgnutls: Introduced the %VERIFY_ALLOW_BROKEN and %VERIFY_ALLOW_SIGN_WITH_SHA1
    priority string options. These allows enabling all broken and SHA1-based signature
    algorithms in certificate verification, respectively.
 
-** libgnutls: gnutls_pem_base64_encode/2() and gnutls_pem_base64_decode/2() can
-   be used to decode arbitrary base64 data if the header parameter is set to NULL.
+** libgnutls: 3DES-CBC is no longer included in the default priorities
+   list. It has to be explicitly enabled, e.g., with a string like
+   "NORMAL:+3DES-CBC".
 
-** libgnutls: removed support for libidn; gnutls can now be compiled only with
-   libidn2.
+** libgnutls: SHA1 was marked as insecure for signing certificates. Verification
+   of certificates signed with SHA1 is now considered insecure and will
+   fail, unless flags intended to enable broken algorithms are set. Other uses
+   of SHA1 are still allowed. This can be reverted on compile time with the configure
+   flag --enable-sha1-support.
 
-** certtool: the option '--load-ca-certificate' can now accept PKCS#11
+** libgnutls: RIPEMD160 was marked as insecure for certificate signatures. Verification
+   of certificates signed with RIPEMD160 hash algorithm is now considered insecure and
+   will fail, unless flags intended to enable broken algorithms are set.
+
+** libgnutls: No longer enable SECP192R1 and SECP224R1 by default on TLS handshakes.
+   These curves were rarely used for that purpose, provide no advantage over
+   x25519 and were deprecated by TLS 1.3.
+
+** libgnutls: Removed support for DEFLATE, or any other compression method.
+
+** libgnutls: OpenPGP authentication was removed; the resulting library is ABI
+   compatible, with the openpgp related functions being stubs that fail
+   on invocation.
+
+** libgnutls: Removed support for libidn (i.e., IDNA2003); gnutls can now be compiled
+   only with libidn2 which provides IDNA2008.
+
+** certtool: The option '--load-ca-certificate' can now accept PKCS#11
    URLs in addition to files.
 
-** certtool: the option '--load-crl' can now be used when generating PKCS#12
+** certtool: The option '--load-crl' can now be used when generating PKCS#12
    files (i.e., in conjunction with '--to-p12' option).
 
+** certtool: Keys with provable RSA and DSA parameters are now only read and
+   exported from PKCS#8 form, following draft-mavrogiannopoulos-pkcs8-validated-parameters-00.txt.
+   This removes support for the previous a non-standard key format.
+
+** certtool: Added support for generating, printing and handling RSA-PSS and
+   Ed25519 keys and certificates.
+
+** certtool: the parameters --rsa, --dsa and --ecdsa to --generate-privkey are now
+   deprecated, replaced by the --key-type option.
+
+** p11tool: The --generate-rsa, --generate-ecc and --generate-dsa options were
+   replaced by the --generate-privkey option.
+
+** psktool: Generate 256-bit keys by default.
+
+** gnutls-server: Increase request buffer size to 16kb, and added the --alpn and
+   --alpn-fatal options, allowing testing of ALPN negotiation.
+
 ** API and ABI modifications:
+gnutls_encode_rs_value: Added
+gnutls_decode_rs_value: Added
+gnutls_base64_encode2: Added
+gnutls_base64_decode2: Added
 gnutls_x509_crt_set_flags: Added
 gnutls_x509_crt_check_ip: Added
 gnutls_x509_ext_import_inhibit_anypolicy: Added
 gnutls_x509_ext_export_inhibit_anypolicy: Added
 gnutls_x509_crt_get_inhibit_anypolicy: Added
 gnutls_x509_crt_set_inhibit_anypolicy: Added
+gnutls_pubkey_export_rsa_raw2: Added
+gnutls_pubkey_export_dsa_raw2: Added
+gnutls_pubkey_export_ecc_raw2: Added
+gnutls_privkey_export_rsa_raw2: Added
+gnutls_privkey_export_dsa_raw2: Added
+gnutls_privkey_export_ecc_raw2: Added
+gnutls_x509_spki_init: Added
+gnutls_x509_spki_deinit: Added
+gnutls_x509_spki_get_pk_algorithm: Added
+gnutls_x509_spki_set_pk_algorithm: Added
+gnutls_x509_spki_get_digest_algorithm: Added
+gnutls_x509_spki_set_digest_algorithm: Added
+gnutls_x509_spki_get_salt_size: Added
+gnutls_x509_spki_set_salt_size: Added
+gnutls_x509_crt_set_spki: Added
+gnutls_x509_crt_get_spki: Added
+gnutls_x509_privkey_get_spki: Added
+gnutls_x509_privkey_set_spki: Added
+gnutls_x509_crq_get_spki: Added
+gnutls_x509_crq_set_spki: Added
+gnutls_pubkey_set_spki: Added
+gnutls_pubkey_get_spki: Added
+gnutls_privkey_set_spki: Added
+gnutls_privkey_get_spki: Added
+gnutls_privkey_import_ext4: Added
+GNUTLS_EXPORT_FLAG_NO_LZ: Added
 GNUTLS_DT_IP_ADDRESS: Added
 GNUTLS_X509_CRT_FLAG_IGNORE_SANITY: Added
 GNUTLS_CERT_UNKNOWN_CRIT_EXTENSIONS: Added
 GNUTLS_VERIFY_ALLOW_SIGN_WITH_SHA1: Added
 GNUTLS_VERIFY_DO_NOT_ALLOW_IP_MATCHES: Added
 GNUTLS_VERIFY_IGNORE_UNKNOWN_CRIT_EXTENSIONS: Added
+GNUTLS_SFLAGS_RFC7919: Added
 
 
 * Version 3.5.7 (released 2016-12-8)
@@ -98,7 +857,7 @@ GNUTLS_VERIFY_IGNORE_UNKNOWN_CRIT_EXTENSIONS: Added
    a flag.
 
 ** libgnutls: Improved TPM key handling. Check authorization requirements
-   prior to using a key and fix issue on loop for PIN input. Patches by 
+   prior to using a key and fix issue on loop for PIN input. Patches by
    James Bottomley.
 
 ** libgnutls: In all functions accepting UTF-8 passwords, ensure that
@@ -176,7 +935,7 @@ gnutls_x509_crq_get_dn3: Added
    not identical to CVE-2016-8610, due to the difference in alert handling
    of the libraries (gnutls delegates that handling to applications).
 
-** libgnutls: Reverted the change which made the gnutls_certificate_set_*key* 
+** libgnutls: Reverted the change which made the gnutls_certificate_set_*key*
    functions return an index (introduced in 3.5.5), to avoid affecting programs
    which explicitly check success of the function as equality to zero. In order
    for these functions to return an index an explicit call to gnutls_certificate_set_flags
@@ -410,7 +1169,7 @@ gnutls_ext_get_name: Added
 * Version 3.5.0 (released 2016-05-09)
 
 ** libgnutls: Added SHA3 based signing algorithms for DSA, RSA and ECDSA,
-   based on http://csrc.nist.gov/groups/ST/crypto_apps_infra/csor/algorithms.html
+   based on https://csrc.nist.gov/groups/ST/crypto_apps_infra/csor/algorithms.html
 
 ** libgnutls: Added support for curve X25519 (RFC 7748, draft-ietf-tls-rfc4492bis-07).
    This curve is disabled by default as it is still on specification status. It
@@ -536,11 +1295,11 @@ gnutls_session_get_master_secret: Added
 ** libgnutls: Removed support for pthread_atfork() as it has undefined
    semantics when used with dlopen(), and may lead to a crash.
 
-** libgnutls: corrected failure when importing plain files 
+** libgnutls: corrected failure when importing plain files
    with gnutls_x509_privkey_import2(), and a password was provided.
 
 ** libgnutls: Don't reject certificates if a CA has the URI or IP address
-   name constraints, and the end certificate doesn't have an IP address 
+   name constraints, and the end certificate doesn't have an IP address
    name or a URI set.
 
 ** libgnutls: set and read the hint in DHE-PSK and ECDHE-PSK ciphersuites.
@@ -636,7 +1395,7 @@ explicitly enabled, since they reduce the overall security level.
 ** libgnutls: Added support for Chacha20-Poly1305 ciphersuites following
 draft-mavrogiannopoulos-chacha-tls-05 and draft-irtf-cfrg-chacha20-poly1305-10.
 That is currently provided as technology preview and is not enabled by
-default, since there are no assigned ciphersuite points by IETF and there 
+default, since there are no assigned ciphersuite points by IETF and there
 is no guarrantee of compatibility between draft versions. The ciphersuite
 priority string to enable it is "+CHACHA20-POLY1305".
 
@@ -688,14 +1447,14 @@ applications closing all open file descriptors on startup.
 
 ** libgnutls: If a key purpose (extended key usage) is specified for verification,
 it is applied into intermediate certificates. The verification result
-GNUTLS_CERT_PURPOSE_MISMATCH is also introduced. 
+GNUTLS_CERT_PURPOSE_MISMATCH is also introduced.
 
 ** libgnutls: When gnutls_certificate_set_x509_key_file2() is used in
 combination with PKCS #11, or TPM URLs, it will utilize the provided
 password as PIN if required. That removes the requirement for the
 application to set a callback for PINs in that case.
 
-** libgnutls: priority strings VERS-TLS-ALL and VERS-DTLS-ALL are 
+** libgnutls: priority strings VERS-TLS-ALL and VERS-DTLS-ALL are
 restricted to the corresponding protocols only, and the VERS-ALL
 string is introduced to catch all possible protocols.
 
@@ -747,14 +1506,14 @@ when available.
 
 ** gnutls-cli: added options --priority-list and --save-cert.
 
-** guile: Deprecated priority API has been removed. The old priority API, 
+** guile: Deprecated priority API has been removed. The old priority API,
 which had been deprecated for some time, is now gone; use 'set-session-priorities!'
 instead.
 
-** guile: Remove RSA parameters and related procedures. This API had been 
-deprecated.  
+** guile: Remove RSA parameters and related procedures. This API had been
+deprecated.
 
-** guile: Fix compilation on MinGW. Previously only the static version of the 
+** guile: Fix compilation on MinGW. Previously only the static version of the
 'guile-gnutls-v-2' library would be built, preventing dynamic loading from Guile.
 
 ** API and ABI modifications:
@@ -884,9 +1643,9 @@ being usable after a reinitialization.
 
 ** libgnutls: fixed PKCS #11 ECDSA key generation.
 
-** libgnutls: The GNUTLS_CPUID_OVERRIDE environment variable can be used to 
+** libgnutls: The GNUTLS_CPUID_OVERRIDE environment variable can be used to
 explicitly enable/disable the use of certain CPU capabilities. Note that CPU
-detection cannot be overriden, i.e., VIA options cannot be enabled on an Intel
+detection cannot be overridden, i.e., VIA options cannot be enabled on an Intel
 CPU. The currently available options are:
   0x1: Disable all run-time detected optimizations
   0x2: Enable AES-NI
@@ -1051,7 +1810,7 @@ were moved to self-test.h.
 different recv and send pointers have been specified. Reported and
 investigated by JMRecio.
 
-** libgnutls: Fixed issue in the RSA-PSK key exchange, which would 
+** libgnutls: Fixed issue in the RSA-PSK key exchange, which would
 result to illegal memory access if a server hint was provided. Reported
 by André Klitzing.
 
@@ -1078,7 +1837,7 @@ That avoids long delays in gnutls initialization due to broken PKCS #11
 modules.
 
 ** libgnutls: The PKCS #11 subsystem is re-initialized "automatically"
-on the first PKCS #11 API call after a fork. 
+on the first PKCS #11 API call after a fork.
 
 ** libgnutls: certificate verification profiles were introduced
 that can be specified as flags to verification functions. They
@@ -1092,15 +1851,15 @@ specified configuration file to be used to read pre-configured priority
 strings from. That can be used to impose system specific policies.
 
 ** libgnutls: Increased the default security level of priority
-strings (NORMAL and PFS strings require at minimum a 1008 DH prime), 
-and set a verification profile by default.  The LEGACY keyword is 
+strings (NORMAL and PFS strings require at minimum a 1008 DH prime),
+and set a verification profile by default.  The LEGACY keyword is
 introduced to set the old defaults.
 
 ** libgnutls: Added support for the name constraints PKIX extension.
 Currently only DNS names and e-mails are supported (no URIs, IPs
 or DNs).
 
-** libgnutls: Security parameter SEC_PARAM_NORMAL was renamed to 
+** libgnutls: Security parameter SEC_PARAM_NORMAL was renamed to
 SEC_PARAM_MEDIUM to avoid confusion with the priority string NORMAL.
 
 ** libgnutls: Added new API in x509-ext.h to handle X.509 extensions.
@@ -1157,7 +1916,7 @@ to SHA1.
 That option enables (when running on FIPS140-enabled system):
  o RSA, DSA and DH key generation as in FIPS-186-4 (using provable primes)
  o The DRBG-CTR-AES256 deterministic random generator from SP800-90A.
- o Self-tests on initialization on ciphers/MACs, public key algorithms 
+ o Self-tests on initialization on ciphers/MACs, public key algorithms
    and the random generator.
  o HMAC-SHA256 verification of the library on load.
  o MD5 is included for TLS purposes but cannot be used by the high level
@@ -1269,7 +2028,7 @@ GCM mode is prioritized over CBC in all of the default priority strings.
 ** libgnutls: Added ciphersuite GNUTLS_ECDHE_RSA_AES_256_CBC_SHA384.
 
 ** libgnutls: Fixed ciphersuites GNUTLS_ECDHE_ECDSA_CAMELLIA_256_CBC_SHA384,
-GNUTLS_ECDHE_RSA_CAMELLIA_256_CBC_SHA384 and GNUTLS_PSK_CAMELLIA_128_GCM_SHA256. 
+GNUTLS_ECDHE_RSA_CAMELLIA_256_CBC_SHA384 and GNUTLS_PSK_CAMELLIA_128_GCM_SHA256.
 Reported by Stefan Buehler.
 
 ** libgnutls: Added support for ISO OID for RSA-SHA1 signatures.
@@ -1311,7 +2070,7 @@ by Christian Grothoff.
 ** srptool: Fixed index command line option. Patch by Attila Molnar.
 
 ** gnutls-cli: Added support for inline commands, using the
---inline-commands-prefix and --inline-commands options. Patch by Raj Raman.	
+--inline-commands-prefix and --inline-commands options. Patch by Raj Raman.
 
 ** certtool: pathlen constraint is now read correctly. Reported by
 Christoph Seitz.
@@ -1348,13 +2107,13 @@ gnutls_record_set_timeout: Exported
 
 ** libgnutls: Fixes in parsing of priority strings. Patch by Stefan Buehler.
 
-** libgnutls: Solve issue with received TLS packets that exceed 2^14. 
+** libgnutls: Solve issue with received TLS packets that exceed 2^14.
 (this fixes a bug that was accidentally introduced in 3.2.2)
 
 ** libgnutls: Removed gnulib modules under LGPLv3 that could possibly be
 used by the library.
 
-** libgnutls: Fixes in gnutls_record_send_range(). Report and initial fix by 
+** libgnutls: Fixes in gnutls_record_send_range(). Report and initial fix by
 Alfredo Pironti.
 
 ** API and ABI modifications:
@@ -1419,7 +2178,7 @@ gnutls_session_set_id: Added
 ** libgnutls: Added UMAC-96 and UMAC-128
 
 ** libgnutls: Added ciphersuites involving Salsa20 and UMAC-96.
-As they are not standardized they are defined using private ciphersuite 
+As they are not standardized they are defined using private ciphersuite
 numbers.
 
 ** libgnutls: Added support for DTLS 1.2.
@@ -1440,7 +2199,7 @@ gnutls_mac_get_nonce_size: Added
 
 * Version 3.1.10 (released 2013-03-22)
 
-** certtool: When generating PKCS #12 files use by default the 
+** certtool: When generating PKCS #12 files use by default the
 ARCFOUR (RC4) cipher to be compatible with devices that don't
 support AES with PKCS #12.
 
@@ -1457,12 +2216,12 @@ cards are present.
 ** libgnutls: Corrected issue in the (deprecated) external key
 signing interface, when used with TLS 1.2. Reported by Bjorn H. Christensen.
 
-** libgnutls: Fixes in openpgp handshake with fingerprints. Reported by 
+** libgnutls: Fixes in openpgp handshake with fingerprints. Reported by
 Joke de Buhr.
 
 ** libgnutls-dane: Updated DANE verification options.
 
-** configure: Trust store file must be explicitly set or unset when 
+** configure: Trust store file must be explicitly set or unset when
 cross compiling.
 
 ** API and ABI modifications:
@@ -1485,7 +2244,7 @@ a PKCS #12 file from an encrypted key file. Reported by Yan Fiz.
 
 ** libgnutls: Corrected issue in gnutls_pubkey_verify_data().
 
-** libgnutls: Corrected parsing issue in XMPP within a subject 
+** libgnutls: Corrected parsing issue in XMPP within a subject
 alternative name. Reported by James Cloos.
 
 ** libgnutls: gnutls_pkcs11_reinit() will reinitialize all PKCS #11
@@ -1516,7 +2275,7 @@ with encrypted keys. Reported by Yan Fiz.
 PERFORMANCE was set to previous defaults 727 bits. Reported by Diego
 Elio Petteno.
 
-** libgnutls: Corrected issue which prevented gnutls_pubkey_verify_hash() 
+** libgnutls: Corrected issue which prevented gnutls_pubkey_verify_hash()
 to operate with long keys. Reported by Erik A Jensen.
 
 ** API and ABI modifications:
@@ -1540,7 +2299,7 @@ in a template from an RFC4514 string.
 
 ** libgnutls: DN variable 'T' was expanded to 'title'.
 
-** libgnutls: Fixes in record padding parsing to prevent a timing attack. 
+** libgnutls: Fixes in record padding parsing to prevent a timing attack.
 Issue reported by Kenny Paterson and Nadhem Alfardan.
 
 ** libgnutls: Added functions to directly set the DN in a certificate
@@ -1556,17 +2315,17 @@ by the specified priority string. The current values correspond to the
 previous defaults (727 bits), except for the SECURE128 and SECURE192
 strings which increase the minimum to 1248 and 1776 respectively.
 
-** libgnutls: Added the gnutls_record_cork() and uncork API to enable 
+** libgnutls: Added the gnutls_record_cork() and uncork API to enable
 buffering in sending application data.
 
-** libgnutls: Removed default random padding, and added a length-hiding interface 
-instead.  Both the server and the client must support this extension. Whether 
+** libgnutls: Removed default random padding, and added a length-hiding interface
+instead.  Both the server and the client must support this extension. Whether
 length-hiding can be used on a given session can be checked using
 gnutls_record_can_use_length_hiding(). Contributed by Alfredo Pironti.
 
-** libgnutls: Added the experimental %NEW_PADDING priority string. It enables 
+** libgnutls: Added the experimental %NEW_PADDING priority string. It enables
 a new padding mechanism in TLS allowing arbitrary padding in TLS records
-in all ciphersuites, which makes length-hiding more efficient and solves 
+in all ciphersuites, which makes length-hiding more efficient and solves
 the issues with timing attacks on CBC ciphersuites.
 
 ** libgnutls: Corrected gnutls_cipher_decrypt2() when used with AEAD
@@ -1638,10 +2397,10 @@ extension.
 ** libgnutls: Handle BMPString (UCS-2) encoding in the Distinguished
 Name by translating it to UTF-8 (works on windows or systems with iconv).
 
-** libgnutls: Added PKCS #11 key generation function that returns the 
+** libgnutls: Added PKCS #11 key generation function that returns the
 public key on generation.
 
-** libgnutls: Corrected bug in priority string parsing, that mostly 
+** libgnutls: Corrected bug in priority string parsing, that mostly
 affected combined levels. Patch by Tim Kosse.
 
 ** certtool: The --pubkey-info option can be combined with the
@@ -1649,7 +2408,7 @@ affected combined levels. Patch by Tim Kosse.
 
 ** certtool: It is able to set certificate policies via a template.
 
-** certtool: Added --hex-numbers option which prints big numbers in 
+** certtool: Added --hex-numbers option which prints big numbers in
 an easier to parse format.
 
 ** p11tool: After key generation, outputs the public key (useful in
@@ -1685,7 +2444,7 @@ gnutls_certificate_verify_peers3().
 Contributed by Martin Storsjo.
 
 ** libgnutls: The X.509 verification functions check the key
-usage bits and pathlen constraints and on failure output 
+usage bits and pathlen constraints and on failure output
 GNUTLS_CERT_SIGNER_CONSTRAINTS_FAILURE.
 
 ** libgnutls: gnutls_x509_crl_verify() includes the time checks.
@@ -1760,7 +2519,7 @@ GNUTLS_NO_EXTENSIONS can be used to prevent that.
 is fully RFC6091 compliant and RFC5081 support is only supported in client
 mode.
 
-** libgnutls-dane: Added. It is a library to provide DANE with DNSSEC 
+** libgnutls-dane: Added. It is a library to provide DANE with DNSSEC
 certificate verification.
 
 ** gnutls-cli: Added --dane option to enable DANE certificate verification.
@@ -1812,10 +2571,10 @@ of certificates in the windows platform.
 ** libgnutls: Added support for DTLS/TLS heartbeats by Olga Smolenchuk.
 (the work was done during Google Summer of Code).
 
-** libgnutls: Added X.509 certificate verification flag 
+** libgnutls: Added X.509 certificate verification flag
 GNUTLS_VERIFY_ALLOW_UNSORTED_CHAIN. This flag allows the verification
 of unsorted certificate chains and is enabled by default for
-TLS certificate verification (if gnutls_certificate_set_verify_flags() 
+TLS certificate verification (if gnutls_certificate_set_verify_flags()
 does not override it).
 
 ** libgnutls: Prints warning on certificates that contain keys of
@@ -1857,7 +2616,7 @@ GNUTLS_SEC_PARAM_INSECURE: Added
 
 ** certtool: Changes in password handling of certtool.
 Ask password when required and only if the '--password' option is not
-given. If the '--password' option is given during key generation then 
+given. If the '--password' option is given during key generation then
 assume the PKCS #8 file format, instead of ignoring the password.
 
 ** tpmtool: No longer asks for key password in registered keys.
@@ -1886,7 +2645,7 @@ gnutls_sign_get_pk_algorithm: Added
 
 * Version 3.1.0 (released 2012-08-15)
 
-** libgnutls: Added direct support for TPM as a cryptographic module 
+** libgnutls: Added direct support for TPM as a cryptographic module
 in gnutls/tpm.h. TPM keys can be used in functions accepting files
 using URLs of the following types:
   tpmkey:file=/path/to/file
@@ -1912,8 +2671,8 @@ the whole certificate chain (if any) to the credentials structure, instead
 of only the end-user certificate.
 
 ** libgnutls: Key import functions such as gnutls_pkcs12_simple_parse()
-and gnutls_x509_privkey_import_pkcs8(), return consistently 
-GNUTLS_E_DECRYPTION_FAILED if the input structure is encrypted but no 
+and gnutls_x509_privkey_import_pkcs8(), return consistently
+GNUTLS_E_DECRYPTION_FAILED if the input structure is encrypted but no
 password was provided.
 
 ** libgnutls: Added gnutls_handshake_set_timeout() a function that
@@ -2002,11 +2761,11 @@ No changes since last version.
 
 * Version 3.0.21 (released 2012-07-02)
 
-** libgnutls: fixed bug in gnutls_x509_privkey_import() 
+** libgnutls: fixed bug in gnutls_x509_privkey_import()
 that prevented the loading of EC private keys when DER
 encoded. Reported by David Woodhouse.
 
-** libgnutls: In DTLS larger to mtu records result to 
+** libgnutls: In DTLS larger to mtu records result to
 GNUTLS_E_LARGE_PACKET instead of being truncated.
 
 ** libgnutls: gnutls_dtls_get_data_mtu() is more precise. Based
@@ -2015,11 +2774,11 @@ on patch by David Woodhouse.
 ** libgnutls: Fixed memory leak in PKCS #8 key import.
 
 ** libgnutls: Added support for an old version of the DTLS protocol
-used by openconnect vpn client for compatibility with Cisco's AnyConnect 
+used by openconnect vpn client for compatibility with Cisco's AnyConnect
 SSL VPN. It is marked as GNUTLS_DTLS0_9. Do not use it for newer protocols
 as it has issues.
 
-** libgnutls: Corrected bug that prevented resolving PKCS #11 URLs 
+** libgnutls: Corrected bug that prevented resolving PKCS #11 URLs
 if only the label is specified. Patch by David Woodhouse.
 
 ** libgnutls: When EMSGSIZE errno is seen then GNUTLS_E_LARGE_PACKET
@@ -2049,7 +2808,7 @@ name type in certtool.
 ** certtool: Increase to 128 the maximum number of distinct options
 (e.g. dns_names) allowed.
 
-** gnutls-cli: If --print-cert is given, print the certificate, 
+** gnutls-cli: If --print-cert is given, print the certificate,
 even on verification failure.
 
 ** API and ABI modifications:
@@ -2066,7 +2825,7 @@ by David Smith.
 
 ** libgnutls: gnutls_record_check_pending() no longer
 returns unprocessed data, and thus ensure the non-blocking
-of the next call to gnutls_record_recv(). 
+of the next call to gnutls_record_recv().
 
 ** libgnutls: Added strict tests in Diffie-Hellman and
 SRP key exchange public keys.
@@ -2093,7 +2852,7 @@ is returned on premature termination (and added unit test).
 
 ** libgnutls: Fixes for W64 API. Patch by B. Scott Michel.
 
-** libgnutls: Corrected VIA padlock detection for old 
+** libgnutls: Corrected VIA padlock detection for old
 VIA processors. Reported by Kris Karas.
 
 ** libgnutls: Updated assembler files.
@@ -2128,7 +2887,7 @@ No changes since last version.
 
 ** libgnutls: included assembler files for MacOSX.
 
-** p11tool: Small fixes in handling of the --private command 
+** p11tool: Small fixes in handling of the --private command
 line option.
 
 ** certtool: The template option allows for setting the domain
@@ -2144,7 +2903,7 @@ gnutls_x509_crt_set_authority_info_access: Added
 ** test suite: Only run under valgrind in the development
 system (the full git repository)
 
-** command line apps: Link with local libopts if the 
+** command line apps: Link with local libopts if the
 installed is an old one.
 
 ** libgnutls: Eliminate double free during SRP
@@ -2204,7 +2963,7 @@ status from an ocsp server.
 ** command line apps: Use gnu autogen (libopts) to parse command
 line arguments and template files.
 
-** tests: Added stress test for DTLS packet losses and 
+** tests: Added stress test for DTLS packet losses and
 out-of-order receival. Contributed by Sean Buckheister.
 
 ** libgnutls: Several updates and corrections in the DTLS
@@ -2283,7 +3042,7 @@ correctly aligned in rare circumstances.
 ** libgnutls: Corrected memory leaks in DH parameter
 generation and ecc_projective_check_point().
 
-** libgnutls: Added gnutls_x509_dn_oid_name() to 
+** libgnutls: Added gnutls_x509_dn_oid_name() to
 return a descriptive name of a DN OID.
 
 ** API and ABI modifications:
@@ -2329,7 +3088,7 @@ gnutls_ocsp_resp_verify: Added.
 
 * Version 3.0.11 (released 2012-01-06)
 
-** libgnutls: Corrected functionality of 
+** libgnutls: Corrected functionality of
 gnutls_record_get_direction(). Reported by Philip Allison.
 
 ** libgnutls: Provide less timing information when decoding
@@ -2356,7 +3115,7 @@ issue in windows systems.
 ** libgnutls: Added ciphersuites: GNUTLS_PSK_WITH_AES_256_GCM_SHA384
 and GNUTLS_DHE_PSK_WITH_AES_256_GCM_SHA384.
 
-** libgnutls: Added function gnutls_random_art() to convert 
+** libgnutls: Added function gnutls_random_art() to convert
 fingerprints to images (currently ascii-art).
 
 ** libgnutls: Corrected bug in DSA private key parsing, which
@@ -2439,13 +3198,13 @@ No changes since last version.
 
 ** gnutls-guile: Compilation fixes.
 
-** libgnutls: Fixed possible buffer overflow in 
+** libgnutls: Fixed possible buffer overflow in
 gnutls_session_get_data(). Reported and fix by Alban Crequy.
 
 ** libgnutls: Bug fixes in the ciphersuites with NULL cipher.
 Reported by Fabrice Gautier.
 
-** libgnutls: Bug fixes in ECC code for 64-bit MIPS systems. 
+** libgnutls: Bug fixes in ECC code for 64-bit MIPS systems.
 Thanks to Joseph Graham for providing access to such a system.
 
 ** libgnutls: Correctly report ECC private key parsing errors.
@@ -2468,7 +3227,7 @@ No changes since last version.
 ** libgnutls: Corrections in VIA padlock code for VIA C5 processor
 and new detection of PHE with support for partial hashing.
 
-** libgnutls: Corrected bug in gnutls_x509_data2hex. Report and fix 
+** libgnutls: Corrected bug in gnutls_x509_data2hex. Report and fix
 by Vincent Untz.
 
 ** minitasn1: Upgraded to libtasn1 version 2.10.
@@ -2486,7 +3245,7 @@ removed.
 SHA256 and elliptic curves.
 
 ** gnutls-cli: Added --benchmark-soft-ciphers to benchmark
-the software version of the ciphers instead of hw accelerated 
+the software version of the ciphers instead of hw accelerated
 (where available)
 
 ** libgnutls: Public key ID calculation is consistent among
@@ -2501,13 +3260,13 @@ used with a gnutls_privkey_t and a gnutls_pcert_st
 structure using gnutls_certificate_set_key().
 
 ** libgnutls: Fixes to enable external signing callback to
-operate with TLS 1.2. 
+operate with TLS 1.2.
 
-** libgnutls: Fixed crash when printing ECDSA certificate key 
+** libgnutls: Fixed crash when printing ECDSA certificate key
 ID. Reported by Erik Jensen.
 
-** libgnutls: Corrected VIA padlock code for C3. In C3 benchmarks 
-show a 50x increase in AES speed and a 14x increase in VIA nano. Added 
+** libgnutls: Corrected VIA padlock code for C3. In C3 benchmarks
+show a 50x increase in AES speed and a 14x increase in VIA nano. Added
 support for hashes and HMACs.
 
 ** libgnutls: Compilation fixed when p11-kit is not detected.
@@ -2539,13 +3298,13 @@ number of discarded records in a DTLS session.
 ** libgnutls: All functions related to RSA-EXPORT were deprecated.
 Support for RSA-EXPORT ciphersuites will be ceased in future versions.
 
-** libgnutls: Memory leak fixes in credentials private key 
+** libgnutls: Memory leak fixes in credentials private key
 deinitialization. Reported by Dan Winship.
 
 ** libgnutls: Memory leak fixes in ECC ciphersuites.
 
-** libgnutls: Do not send an empty extension structure in server 
-hello. This affected old implementations that do not support extensions. 
+** libgnutls: Do not send an empty extension structure in server
+hello. This affected old implementations that do not support extensions.
 Reported by J. Cameijo Cerdeira.
 
 ** libgnutls: Allow CA importing of 0 certificates to succeed.
@@ -2561,11 +3320,11 @@ PKCS #11.
 ** libgnutls: Added gnutls_pkcs11_privkey_generate()
 to allow generating a key in a token.
 
-** p11tool: Added generate-rsa, generate-dsa and 
+** p11tool: Added generate-rsa, generate-dsa and
 generate-ecc options to allow generating private
 keys in the token.
 
-** libgnutls: gnutls_transport_set_lowat dummy macro was 
+** libgnutls: gnutls_transport_set_lowat dummy macro was
 removed.
 
 ** API and ABI modifications:
@@ -2586,7 +3345,7 @@ by default.
 ** libgnutls: Corrected issue in gnutls_record_recv()
 triggered on encryption or compression error.
 
-** libgnutls: Compatibility fixes in CPU ID detection 
+** libgnutls: Compatibility fixes in CPU ID detection
 for i386 and old GCC.
 
 ** gnutls-cli: Benchmark applications were incorporated
@@ -2609,16 +3368,16 @@ GNUTLS_PRIVKEY_IMPORT_COPY: new gnutls_privkey_import() flag
 
 * Version 3.0.1 (released 2011-08-20)
 
-** libgnutls: gnutls_certificate_set_x509_key_file() and 
-friends support server name indication. If multiple 
-certificates are set using these functions the proper one 
-will be selected during a handshake. 
+** libgnutls: gnutls_certificate_set_x509_key_file() and
+friends support server name indication. If multiple
+certificates are set using these functions the proper one
+will be selected during a handshake.
 
 ** libgnutls: Added AES-256-GCM which was left out from
 the previous release. Reported by Benjamin Hof.
 
-** libgnutls: When asking for a PKCS# 11 PIN multiple 
-times, the flags in the callback were not being updated 
+** libgnutls: When asking for a PKCS# 11 PIN multiple
+times, the flags in the callback were not being updated
 to reflect for PIN low count or final try.
 
 ** libgnutls: Do not allow second instances of PKCS #11
@@ -2630,11 +3389,11 @@ modules.
 is being read if provided.
 
 ** libgnutls: Ensure that a certificate list specified
-using gnutls_certificate_set_x509_key() and friends, is 
+using gnutls_certificate_set_x509_key() and friends, is
 sorted according to TLS specification (from subject to issuer).
 
 ** libgnutls: Added GNUTLS_X509_CRT_LIST_FAIL_IF_UNSORTED flag for
-gnutls_x509_crt_list_import. It checks whether the list to be 
+gnutls_x509_crt_list_import. It checks whether the list to be
 imported is properly sorted.
 
 ** crywrap: Added to the distribution. It is an application
@@ -2693,10 +3452,10 @@ strings to enable the NSA SuiteB cryptography ciphersuites.
 ** libgnutls: Added gnutls_pubkey_verify_data2() that will
 verify data provided the signature algorithm.
 
-** libgnutls: Simplified the handling of handshake messages to 
-be hashed. Instead of hashing during the handshake process we now 
-keep the data until handshake is over and hash them on request. 
-This uses more memory but eliminates issues with TLS 1.2 and 
+** libgnutls: Simplified the handling of handshake messages to
+be hashed. Instead of hashing during the handshake process we now
+keep the data until handshake is over and hash them on request.
+This uses more memory but eliminates issues with TLS 1.2 and
 simplifies code.
 
 ** libgnutls: Added AES-GCM optimizations using the PCLMULQDQ
@@ -2788,7 +3547,7 @@ GNUTLS_PK_ECC: New public key algorithm
 GNUTLS_SIGN_ECDSA_SHA1: New signature algorithm
 GNUTLS_SIGN_ECDSA_SHA256: New signature algorithm
 GNUTLS_SIGN_ECDSA_SHA384: New signature algorithm
-GNUTLS_SIGN_ECDSA_SHA512: New signature algorithm 
+GNUTLS_SIGN_ECDSA_SHA512: New signature algorithm
 GNUTLS_SIGN_ECDSA_SHA224: New signature algorithm
 GNUTLS_ECC_CURVE_INVALID: New curve definition
 GNUTLS_ECC_CURVE_SECP224R1: New curve definition
@@ -2806,7 +3565,7 @@ GNUTLS_ECC_CURVE_SECP521R1: New curve definition
 ** libgnutls: Added support for AES-NI if detected. Uses
 Andy Polyakov's AES-NI code.
 
-** libgnutls: Restored HMAC-MD5 for compatibility. Although considered 
+** libgnutls: Restored HMAC-MD5 for compatibility. Although considered
 weak, several sites require it for connection. It is enabled for
 "NORMAL" and "PERFORMANCE" priority strings.
 
@@ -2850,10 +3609,10 @@ by Todd A. Ouska.
 every error and not only on fatal ones. This allows easier
 handling of errors.
 
-** libgnutls: Corrected issue in DHE-PSK ciphersuites that ignored    
+** libgnutls: Corrected issue in DHE-PSK ciphersuites that ignored
 the PSK callback.
 
-** libgnutls: SRP and PSK are no longer set on the default priorities. 
+** libgnutls: SRP and PSK are no longer set on the default priorities.
 They have to be explicitly set.
 
 ** libgnutls: During handshake message verification using DSS
@@ -2868,7 +3627,7 @@ on unexpected EOF, instead of GNUTLS_E_UNEXPECTED_PACKET_LENGTH.
 It was never standardized nor published as an RFC.
 
 ** libgnutls: Added new certificate verification functions, that
-can provide more details and are more efficient. Check 
+can provide more details and are more efficient. Check
 gnutls_x509_trust_list_*.
 
 ** certtool: Uses the new certificate verification functions for
@@ -2970,7 +3729,7 @@ the incompatibility with TLS other than 1.2.
 ** libgnutls: Modified signature algorithm selection in client
 certificate request, to avoid failures in DSA certificates.
 
-** libgnutls: Instead of failing with internal error, return 
+** libgnutls: Instead of failing with internal error, return
 GNUTLS_E_INCOMPAT_DSA_KEY_WITH_TLS_PROTOCOL if an incompatible DSA
 key with the negotiated protocol is encountered.
 
@@ -2997,9 +3756,9 @@ gnutls_pubkey_import_openpgp: MODIFIED
 replaced by gnutls_privkey_sign_hash2().
 
 ** libgnutls: gnutls_pubkey_verify_data, gnutls_pubkey_verify_hash,
-gnutls_x509_privkey_verify_data, gnutls_x509_crt_verify_data, 
-gnutls_x509_crt_verify_hash return the negative error code 
-GNUTLS_E_PK_SIG_VERIFY_FAILED if verification fails to simplify error 
+gnutls_x509_privkey_verify_data, gnutls_x509_crt_verify_data,
+gnutls_x509_crt_verify_hash return the negative error code
+GNUTLS_E_PK_SIG_VERIFY_FAILED if verification fails to simplify error
 checking.
 
 ** libgnutls: Added helper functions for signature verification:
@@ -3057,7 +3816,7 @@ gnutls_privkey_sign_hash: REMOVED (was added in 2.11.0)
 SSL 3.0. To restore the previous default behavior use %LATEST_RECORD_VERSION
 priority string.
 
-** libgnutls: Use ASN1_NULL when writing parameters for RSA signatures. 
+** libgnutls: Use ASN1_NULL when writing parameters for RSA signatures.
 This makes us comply with RFC3279. Reported by Michael Rommel.
 
 ** gnutls-serv: Corrected a buffer overflow. Reported and patch by Tomas Mraz.
@@ -3157,7 +3916,7 @@ backend crypto library.
 
 ** libgnutls: Several updates in the buffering internal interface.
 
-** libgnutls: Is now more liberal in the PEM decoding. That is spaces and 
+** libgnutls: Is now more liberal in the PEM decoding. That is spaces and
 tabs are being skipped.
 
 ** libgnutls: Added support for draft-pechanec-pkcs11uri-02.
@@ -3209,7 +3968,7 @@ jurisdictionOfIncorporationLocalityName,
 jurisdictionOfIncorporationStateOrProvinceName,
 jurisdictionOfIncorporationCountryName
 
-** libgnutls: Added support for DSA signing/verifying with bit 
+** libgnutls: Added support for DSA signing/verifying with bit
 length over 1024.
 
 ** libgnutls-extra: When in FIPS mode gnutls_global_init_extra()
@@ -3232,7 +3991,7 @@ imported from tokens, and operations can be performed on private keys.
 ** libgnutls: Added abstract gnutls_privkey_t and gnutls_pubkey_t
 
 ** libgnutls: Added initial support for the nettle library. It uses
-the system's random generator for seeding. That is /dev/urandom in Linux, 
+the system's random generator for seeding. That is /dev/urandom in Linux,
 system calls in Win32 and EGD on other systems.
 
 ** libgnutls: Corrected issue on the %SSL3_RECORD_VERSION priority string. It now
@@ -3452,8 +4211,8 @@ Instead new error code GNUTLS_E_UNKNOWN_SRP_USERNAME is added.
 ** certtool: Corrected two issues that affected certificate request generation.
 (1) Null padding is added on integers (found thanks to Wilankar Trupti),
 (2) In optional SignatureAlgorithm parameters field for DSA keys the DSA
-parameters were added. Those were rejected by Verisign. Gnutls no longer adds 
-those parameters there since other implementations don't do either and having 
+parameters were added. Those were rejected by Verisign. Gnutls no longer adds
+those parameters there since other implementations don't do either and having
 them does not seem to offer anything (anyway you need the signer's certificate
 to verify thus public key will be available). Found thanks to Boyan Kasarov.
 This however has the side-effect that public key IDs shown by certtool are
@@ -3542,7 +4301,7 @@ with gnutls_sign_algorithm_get_requested() whether the certificate
 they send complies with the peer's preferences in signature
 algorithms.
 
-** libgnutls: In server side when resuming a session do not overwrite the 
+** libgnutls: In server side when resuming a session do not overwrite the
 ** initial session data with the resumed session data.
 
 ** libgnutls: Added support for AES-128, AES-192 and AES-256 in PKCS #8
@@ -3785,7 +4544,7 @@ No changes since last version.
 
 * Version 2.8.5 (released 2009-11-02)
 
-** libgnutls: In server side when resuming a session do not overwrite the 
+** libgnutls: In server side when resuming a session do not overwrite the
 ** initial session data with the resumed session data.
 
 ** libgnutls: Fix PKCS#12 encoding.
@@ -4025,7 +4784,7 @@ The symbols are:
 
   _gnutls*
   gnutls_asn1_tab
-  
+
 Normally when symbols are removed, the shared library version has to
 be incremented.  This leads to a significant cost for everyone using
 the library.  Because none of the above symbols have ever been
@@ -4286,7 +5045,7 @@ Reported by Roman Bogorodskiy <novel@FreeBSD.org> in
 It is currently only used by the core library.  This will enable a new
 domain 'gnutls' for translations of the command line tools.
 
-** Corrected possible memory corruption on signature verification failure. 
+** Corrected possible memory corruption on signature verification failure.
 Reported by Miroslav Kratochvil <exa.exa@gmail.com>
 
 ** API and ABI modifications:
@@ -4316,8 +5075,8 @@ information.  This avoids code duplication.
 They can be used to override the default certificate chain validation
 behaviour.
 
-** libgnutls: Added %SSL3_RECORD_VERSION priority string that allows to 
-specify the client hello message record version. Used to overcome buggy 
+** libgnutls: Added %SSL3_RECORD_VERSION priority string that allows to
+specify the client hello message record version. Used to overcome buggy
 TLS servers. Report by Martin von Gagern.
 
 ** libgnutls: gnutls_x509_crt_print prints signature algorithm in oneline mode.
@@ -4433,7 +5192,7 @@ trusting that name.  Thanks for report and analysis from Martin von
 Gagern <Martin.vGagern@gmx.net>.  [CVE-2008-4989]
 
 Any updates with more details about this vulnerability will be added
-to <http://www.gnu.org/software/gnutls/security.html>
+to <https://www.gnu.org/software/gnutls/security.html>
 
 ** libgnutls: Fix namespace issue with version symbols.
 The symbols LIBGNUTLS_VERSION, LIBGNUTLS_VERSION_MAJOR,
@@ -4591,7 +5350,7 @@ GNUTLS_VERIFY_DISABLE_TIME_CHECKS, that can be used to disable the new
 behaviour.
 
 More details about the vulnerabilities will be posted at
-<http://www.gnu.org/software/gnutls/security.html>.
+<https://www.gnu.org/software/gnutls/security.html>.
 
 ** gnutls-cli, gnutls-cli-debug: Fix AIX build problem.
 Reported by LAUPRETRE François (P) <francois.laupretre@ratp.fr> in
@@ -4708,7 +5467,7 @@ trusting that name.  Thanks for report and analysis from Martin von
 Gagern <Martin.vGagern@gmx.net>.  [CVE-2008-4989]
 
 Any updates with more details about this vulnerability will be added
-to <http://www.gnu.org/software/gnutls/security.html>
+to <https://www.gnu.org/software/gnutls/security.html>
 
 ** libgnutls: Add missing prototype for gnutls_srp_set_prime_bits.
 Reported by Kevin Quick <quick@sparq.org> in
@@ -5125,7 +5884,7 @@ trusting that name.  Thanks for report and analysis from Martin von
 Gagern <Martin.vGagern@gmx.net>.  [CVE-2008-4989]
 
 Any updates with more details about this vulnerability will be added
-to <http://www.gnu.org/software/gnutls/security.html>
+to <https://www.gnu.org/software/gnutls/security.html>
 
 ** libgnutls: Fix buffer overrun in gnutls_x509_crt_list_import.
 Report and patch by Jonathan Manktelow.
@@ -5166,7 +5925,7 @@ can happen for re-handshakes, the library would crash because it tried
 to hash some data using a libgcrypt handle that had been deallocated.
 Report and tiny patch from Tomas Mraz <tmraz@redhat.com>.  Any updates
 with more details about this vulnerability will be added to
-<http://www.gnu.org/software/gnutls/security.html>
+<https://www.gnu.org/software/gnutls/security.html>
 
 ** libgnutls: Fix memory leaks when doing a re-handshake.
 Reported by Sam Varshavchik <mrsam@courier-mta.com> in
@@ -5475,7 +6234,7 @@ Thanks to CERT-FI for finding the bugs and providing detailed reports,
 which allowed the bugs to be reproduced and fixed easily.  Patches
 developed by Simon Josefsson and Nikos Mavrogiannopoulos.  Any updates
 with more details about these vulnerabilities will be added to
-<http://www.gnu.org/software/gnutls/security.html>
+<https://www.gnu.org/software/gnutls/security.html>
 
 *** [GNUTLS-SA-2008-1-1]
 *** libgnutls: Fix crash when sending invalid server name.
@@ -5496,7 +6255,7 @@ The crash can be triggered remotely before authentication, which can
 lead to a Daniel of Service attack to disable the server.  The bug
 cause gnutls to read memory beyond the end of the received record.
 
-** libgnutlsxx: Updated API according to patches from Eduardo 
+** libgnutlsxx: Updated API according to patches from Eduardo
 Villanueva Che (discussion at
 <http://lists.gnu.org/archive/html/gnutls-devel/2007-02/msg00017.html>)
 
@@ -5682,7 +6441,7 @@ gnutls_openpgp_crt_get_auth_subkey: MODIFIED
 ** Finish renaming of gnutls_certificate_export_x509_cas etc.
 They weren't renamed in the public header file.
 
-** Added functions to register a cipher/mac/digest. This allows to 
+** Added functions to register a cipher/mac/digest. This allows to
 override the included ones.
 
 ** Fix a bunch of compiler warnings.
@@ -5887,7 +6646,7 @@ Thanks to CERT-FI for finding the bugs and providing detailed reports,
 which allowed the bugs to be reproduced and fixed easily.  Patches
 developed by Simon Josefsson and Nikos Mavrogiannopoulos.  Any updates
 with more details about these vulnerabilities will be added to
-<http://www.gnu.org/software/gnutls/security.html>
+<https://www.gnu.org/software/gnutls/security.html>
 
 *** [GNUTLS-SA-2008-1-1]
 *** libgnutls: Fix crash when sending invalid server name.
@@ -6242,7 +7001,7 @@ No changes since last version.
 * Version 2.1.4 (released 2007-10-27)
 
 ** Added the --v1 option to certtool, to allow generating X.509
-version 1 certificates. 
+version 1 certificates.
 
 ** certtool: Add option --disable-quick-random to enable the old behaviour
 of using /dev/random to generate keys.
@@ -6252,7 +7011,7 @@ of using /dev/random to generate keys.
 ** Added gnutls_set_default_priority2() which accepts a flag to indicate
 priorities preferences.
 
-** Added gnutls_record_disable_padding() to allow servers talking to 
+** Added gnutls_record_disable_padding() to allow servers talking to
 buggy clients that complain if the TLS 1.0 record protocol padding is
 used.
 
@@ -6400,7 +7159,7 @@ gnutls_oprfi_enable_server: ADD, new function.
 
 * Version 2.0.4 (released 2007-11-16)
 
-** Corrected bug in decompression of expanded compression data.           
+** Corrected bug in decompression of expanded compression data.
 
 ** API and ABI modifications:
 No changes since last version.
@@ -7388,7 +8147,7 @@ This enables 'make distcheck' to succeed.
 Reported by Daniel Black <dragonheart@gentoo.org>.
 
 ** Fix a crash (strcmp() on a NULL value) in the certificate verification logic.
-See http://www.gnu.org/software/gnutls/security.html regardging
+See https://www.gnu.org/software/gnutls/security.html regardging
 GNUTLS-SA-2006-2 for more up to date information.  Reported by
 satyakumar <satyam_kkd@hyd.hellosoft.com>.
 
@@ -7461,7 +8220,7 @@ known at this point whether the crash can be triggered without the
 special local CA certificate, and thus turn this into a remote crash
 of clients that verify server certificates when they talk to a server
 with the special server certificate.  See GNUTLS-SA-2006-2 on
-http://www.gnu.org/software/gnutls/security.html for more up to date
+https://www.gnu.org/software/gnutls/security.html for more up to date
 information.  Reported by satyakumar <satyam_kkd@hyd.hellosoft.com>.
 
 ** Change SRP and Cert-Type extensions to match IANA registry.
@@ -7547,13 +8306,13 @@ Protover SSL.  Libtasn1 0.2.18 is now required, which contains the
 previous bug fix.  The included libtasn1 version in GnuTLS has been
 updated.
 
-** Fixed bug in non-blocking gnutls_bye(). gnutls_record_send() will no 
-longer invalidate a session if the underlying send fails, but it will 
+** Fixed bug in non-blocking gnutls_bye(). gnutls_record_send() will no
+longer invalidate a session if the underlying send fails, but it will
 prevent future writes. That is to allow reading the already received data.
 Patches and bug reports by Yoann Vandoorselaere <yoann@prelude-ids.org>
 
 ** Corrected bugs in gnutls_certificate_set_x509_crl() and
-gnutls_certificate_set_x509_trust(), that caused memory corruption if 
+gnutls_certificate_set_x509_trust(), that caused memory corruption if
 more than one certificates were added. Report and patch by Max Kellermann.
 
 ** Fix build problems of OpenCDK on AIX.
@@ -7828,8 +8587,8 @@ Use size_t instead of int for output size parameter:
 - Corrected bugs in gnutls_certificate_set_x509_crl() and
   gnutls_certificate_set_x509_trust(), that caused memory corruption if
   more than one certificates were added. Report and patch by Max Kellermann.
-- Fixed bug in non-blocking gnutls_bye(). gnutls_record_send() will no 
-  longer invalidate a session if the underlying send fails, but it will 
+- Fixed bug in non-blocking gnutls_bye(). gnutls_record_send() will no
+  longer invalidate a session if the underlying send fails, but it will
   prevent future writes. That is to allow reading the already received data.
   Patches and bug reports by Yoann Vandoorselaere <yoann@prelude-ids.org>
 
@@ -7945,7 +8704,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   <dalgoda@ix.netcom.com>.
 - Fixed off-by-one bug in the size parameter of gnutls_x509_crt_get*_dn,
   reported by Adam Langley <alangley@gmail.com>.
-- Corrected some stuff in minilzo detection. Pointed out by 
+- Corrected some stuff in minilzo detection. Pointed out by
   Sergey Lipnevich.
 - MiniLZO updated to version 2.00.
 - gnutls_x509_crt_list_import now accept a DER formatted CRL.
@@ -8008,7 +8767,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   <pierre42d@9online.fr>.
 - Eliminated some memory leaks in DHE and RSA-EXPORT cipher suites.
   Reported by Yoann Vandoorselaere <yoann@prelude-ids.org>.
-- If the library has been compiled with features disabled, a warning is 
+- If the library has been compiled with features disabled, a warning is
   issued during the compilation of any program.
 - API and ABI modifications:
     gnutls_x509_crt_list_import(): Add
@@ -8020,7 +8779,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 
 * Version 1.2.0 (2005-01-27)
 - Added the definitions and OIDs for the RIPEMD-160 hash algorithm.
-- Introduced gnutls_x509_crt_sign2(), gnutls_x509_crq_sign2() and 
+- Introduced gnutls_x509_crt_sign2(), gnutls_x509_crq_sign2() and
   gnutls_x509_crl_sign2().
 - Fixed license header in source code files.
 
@@ -8106,7 +8865,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Added self test that tests anonymous TLS client and server.
 - Added self tests of Nettle and generic crypto layer.
 - Added API reference manual in HTML format in doc/reference/ using GTK-DOC.
-  Online version at <http://www.gnu.org/software/gnutls/reference/>.
+  Online version at <https://www.gnu.org/software/gnutls/reference/>.
 - Assume C89 or better; removed checks for size_t, ptrdiff_t and time_t.
 - Man pages for API functions are included.
 
@@ -8144,14 +8903,14 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Changed the makefiles to be more portable.
 - SRP ciphersuites were moved to the gnutls library.
 - Added some default limits in the verification of certificate
-  chains, to avoid denial of service attacks. Also added 
+  chains, to avoid denial of service attacks. Also added
   gnutls_certificate_set_verify_limits() to override them.
   Issue pointed out by Patrik Hornik <patrik@hornik.sk>.
 - Added gnutls_certificate_verify_peers2().
 
 * Version 1.1.11 (2004-07-16)
 - Added the '_t' suffix to all exported symbols.
-- Fixed bug in RSA encryption, report and patch by Martijn Koster 
+- Fixed bug in RSA encryption, report and patch by Martijn Koster
   <mak@greenhills.co.uk>.
 - Corrected a bug in certificate verification. Pointed out by
   Yoann Vandoorselaere <yoann@prelude-ids.org>
@@ -8159,7 +8918,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   verification functions.
 - The ephemeral DH and RSA parameters are no longer stored in the
   session resume DB.
-- Do not free the SRP (prime and generator) parameters obtained from the 
+- Do not free the SRP (prime and generator) parameters obtained from the
   callback if they are the static ones defined in extra.h
 - Eliminated some memory leaks. Reported by Yoann Vandoorselaere.
 
@@ -8205,14 +8964,14 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Optimized the copying of rsa_params.
 
 * Version 1.1.7 (2004-03-29)
-- Added gnutls_certificate_set_params_function() and 
+- Added gnutls_certificate_set_params_function() and
   gnutls_anon_set_params_function() that set the RSA or DH
   parameters using a callback.
 - Added functions gnutls_rsa_params_cpy(), gnutls_dh_params_cpy()
   and gnutls_x509_privkey_cpy().
 - Corrected a compilation issue when opencdk was installed in a
   non standard directory.
-- Deprecated: gnutls_srp_server_set_select_function(), 
+- Deprecated: gnutls_srp_server_set_select_function(),
   gnutls_certificate_client_set_select_function(), gnutls_srp_server_set_select_function().
 
 * Version 1.1.6 (2004-02-24)
@@ -8324,19 +9083,19 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   compatibility with previous versions.
 - Changed the makefiles to be more portable.
 - Added some default limits in the verification of certificate
-  chains, to avoid denial of service attacks. Also added 
+  chains, to avoid denial of service attacks. Also added
   gnutls_certificate_set_verify_limits() to override them.
   Issue pointed out by Patrik Hornik <patrik@hornik.sk>.
 - Added gnutls_certificate_verify_peers2().
 
 * Version 1.0.16 (2004-07-10)
-- Do not free the SRP (prime and generator) parameters obtained from the 
+- Do not free the SRP (prime and generator) parameters obtained from the
   callback if they are the static ones defined in extra.h.
 - Eliminated some memory leaks. Reported by Yoann Vandoorselaere.
 - Some fixes in the makefiles.
 
 * Version 1.0.15 (2004-06-29)
-- Fixed bug in RSA encryption, report and patch by Martijn Koster 
+- Fixed bug in RSA encryption, report and patch by Martijn Koster
   <mak@greenhills.co.uk>.
 - Corrected a bug in certificate verification. Pointed out by
   Yoann Vandoorselaere <yoann@prelude-ids.org>.
@@ -8380,7 +9139,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Corrected bug in SSL 3.0 authentication.
 
 * Version 1.0.9 (2004-03-29)
-- Added gnutls_certificate_set_params_function() and 
+- Added gnutls_certificate_set_params_function() and
   gnutls_anon_set_params_function() that set the RSA or DH
   parameters using a callback.
 - Added functions gnutls_rsa_params_cpy(), gnutls_dh_params_cpy()
@@ -8459,7 +9218,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 * Version 0.9.99 (2003-11-28)
 - Some fixes in the gnutls.h header for the gnutls_server_name_set()
   and gnutls_server_name_get() prototypes.
-- Exported the gnutls_x509_privkey_sign_data(), gnutls_x509_privkey_verify_data() 
+- Exported the gnutls_x509_privkey_sign_data(), gnutls_x509_privkey_verify_data()
   and gnutls_x509_crt_verify_data().
 - Some fixes in the openpgp authentication.
 - Removed the Twofish cipher.
@@ -8498,7 +9257,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 
 * Version 0.9.94 (2003-10-30)
 - Added manpages for the included programs.
-- Documented and improved the certtool utility. 
+- Documented and improved the certtool utility.
 - Added PKCS #12 support to certtool utility.
 
 * Version 0.9.93 (2003-10-26)
@@ -8530,7 +9289,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - The library can now decrypt PKCS #12 files encrypted with
   the RC2-40 cipher.
 - The missing rfc2818_hostname object is now included.
-- Several corrections and bug fixes in the library by 
+- Several corrections and bug fixes in the library by
   Arne Thomassen <arne@arne-thomassen.de>.
 - CR is now allowed in the base64 decoder.
 
@@ -8561,7 +9320,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Added functionality to generate PKCS #7 structures (with certificates).
 
 * Version 0.9.3 (2003-03-24)
-- Support for MD2 was dropped. 
+- Support for MD2 was dropped.
 - Improved the error logging functions, by adding a level, and
   by allowing debugging messages just by increasing the level.
 - The diffie Hellman ciphersuites are now of higher priority than
@@ -8570,18 +9329,18 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Implemented the counter measure discussed in the paper "Attacking
   RSA-based Sessions in SSL/TLS", against the attack described in the
   same paper.
-- Added the functions: gnutls_handshake_get_last_in(), 
+- Added the functions: gnutls_handshake_get_last_in(),
   gnutls_handshake_get_last_out().
-- The gnutls_certificate_set_rsa_params() was renamed to 
+- The gnutls_certificate_set_rsa_params() was renamed to
   gnutls_certificate_set_rsa_export_params().
 - Added the new functions: gnutls_certificate_set_x509_key()
   gnutls_certificate_set_x509_trust(), gnutls_certificate_set_x509_crl(),
   gnutls_x509_crt_export(), gnutls_x509_crl_export().
-- Added support for encoding and decoding PKCS #8 2.0 encrypted 
+- Added support for encoding and decoding PKCS #8 2.0 encrypted
   RSA private keys.
 
 * Version 0.9.2 (2003-03-15)
-- Some corrections in the memory mapping code (file is unmapped after 
+- Some corrections in the memory mapping code (file is unmapped after
   it is read).
 - Added support for PKCS#10 certificate requests generation.
 
@@ -8599,27 +9358,27 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Added an strnstr() function and the requirement in some functions to
   use null terminated PEM structures is no more.
 - Use mmap() if available to read files.
-- Fixed a memory leak in SRP code reported by Rupert Kittinger 
+- Fixed a memory leak in SRP code reported by Rupert Kittinger
   <r.kittinger@efkon.com>.
 
 * Version 0.9.0 (2003-03-03)
 - This version is not binary compatible with the previous ones.
-- The library notifies the application on empty and illegal SRP usernames, 
+- The library notifies the application on empty and illegal SRP usernames,
   so that proper notification (via an alert) is sent to the peer.
 - Added ability to send some messages back to the application using
   the gnutls_global_set_log_function().
-- gnutls_dh_params_generate() and gnutls_rsa_params_generate() now use 
+- gnutls_dh_params_generate() and gnutls_rsa_params_generate() now use
   gnutls_malloc() to allocate the output parameters.
 - Added support for MD2 algorithm in certificate signature verification.
 - The RSA and DH parameter generation interface was changed. Added
-  ability to import and export from and to PKCS3 structures. This 
+  ability to import and export from and to PKCS3 structures. This
   was needed to read parameters generated using the openssl dhparam tool.
-- Several changes in the temporary (DH/RSA) parameter codebase. No DH 
-  parameters are now included in the library. Also the credentials structure 
+- Several changes in the temporary (DH/RSA) parameter codebase. No DH
+  parameters are now included in the library. Also the credentials structure
   can now hold only one temporary parameter of a kind.
-- Added a new Certificate, CRL, Private key and PKCS7 structures handling 
+- Added a new Certificate, CRL, Private key and PKCS7 structures handling
   API, defined in gnutls/x509.h
-- Added gnutls_certificate_set_verify_flags() function to allow setting the 
+- Added gnutls_certificate_set_verify_flags() function to allow setting the
   verification flags in the credentials structure. They will be used in the
   *verify_peers functions.
 - Added protection against the new TLS 1.0 record layer timing attack.
@@ -8637,19 +9396,19 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Some fixes which now allow compilation.
 
 * Version 0.8.0 (2003-01-20)
-- Added gnutls_x509_extract_dn_string() which returns a 
+- Added gnutls_x509_extract_dn_string() which returns a
   distinguished name in a single string.
 - Added gnutls_openpgp_extract_key_name_string() which returns
   an openpgp user ID in a single string.
 - Added gnutls_x509_extract_certificate_ca_status() which returns
   the CA status of the given certificate.
 - Added SRP-6 support. Follows draft-ietf-tls-srp-04.
-- If libtasn1 is not present in the system, it is included in 
+- If libtasn1 is not present in the system, it is included in
   the main gnutls library.
 - If liblzo is present in the system, then the included minilzo
   will not be used, and libgnutls-extra will depend on liblzo.
-- GNUTLS_E_PARSING_ERROR error code was replaced by GNUTLS_E_BASE64_DECODING_ERROR, 
-  and GNUTLS_E_SRP_PWD_PARSING_ERROR. GNUTLS_E_ASCII_ARMOR_ERROR was also 
+- GNUTLS_E_PARSING_ERROR error code was replaced by GNUTLS_E_BASE64_DECODING_ERROR,
+  and GNUTLS_E_SRP_PWD_PARSING_ERROR. GNUTLS_E_ASCII_ARMOR_ERROR was also
   replaced by GNUTLS_E_BASE64_DECODING_ERROR.
 
 * Version 0.6.0 (2002-12-08)
@@ -8679,7 +9438,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   these are binary compatible.
 
 * Version 0.5.11 (2002-11-05)
-- Some fixes in 'gnutls-cli' client program to prevent some segmentation 
+- Some fixes in 'gnutls-cli' client program to prevent some segmentation
   faults at exit.
 - Example programs found in the documentation can now be generated by
   running "make examples" in doc/tex directory.
@@ -8705,7 +9464,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   starttls implementations.
 - Added gnutls_x509_extract_key_pk_algorithm() function which extracts
   the private key type, of a DER encoded key.
-- Added gnutls_x509_extract_certificate_dn_string() which returns the 
+- Added gnutls_x509_extract_certificate_dn_string() which returns the
   certificate's distinguished name in a single string.
 - Added gnutls_set_default_priority() and gnutls_set_default_export_priority()
   functions, to avoid calling all the *_priority() functions if the defaults
@@ -8729,7 +9488,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Corrected bug in session resuming code in server side.
 
 * Version 0.5.6 (2002-09-06)
-- Corrected bugs in SRP implementation, which prevented gnutls 
+- Corrected bugs in SRP implementation, which prevented gnutls
   to interoperate with other implementations. (interoperability testing
   was done by David Taylor)
 - Corrected bug in cert_type extension.
@@ -8741,10 +9500,10 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 * Version 0.5.5 (2002-09-03)
 - Updated the SRP implementation to the latest draft. The blowfish
   crypt implementation was removed, since the new draft does not allow
-  other hash algorithms except for the srpsha. 
+  other hash algorithms except for the srpsha.
 - Renamed all the constructed types in order to have more consistent
-  names. 
-- Improved the certificate and key read functions. Now they can read 
+  names.
+- Improved the certificate and key read functions. Now they can read
   the certificate and the private key from the same file.
 - Updated and corrected documentation.
 
@@ -8774,7 +9533,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
   <gnutls/gnutls.h>
 - Documentation fixes
 - Added gnutls_transport_set_ptr2() function, which accepts two
-  different pointers, to be used while receiving, and 
+  different pointers, to be used while receiving, and
   while sending data.
 - Semantic changes in gnutls_record_set_max_size(). The requested
   size is now immediately enforced at the output buffers.
@@ -8856,15 +9615,15 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - Corrections in session resumption
 - Rehandshake can now handle negotiation of different authentication
   type.
-- gnutls-cli, gnutls-serv, gnutls-srpcrypt and gnutls-cli-debug are 
+- gnutls-cli, gnutls-serv, gnutls-srpcrypt and gnutls-cli-debug are
   now being installed.
 
 * Version 0.3.90 (2002-02-24)
-- Handshake messages are not kept in memory any more. Now we use 
+- Handshake messages are not kept in memory any more. Now we use
   less memory during a handshake
 - Added support for certificates with DSA parameters
 - Added DHE_DSS cipher suites
-- Key exchange methods changed so they do not depend on the 
+- Key exchange methods changed so they do not depend on the
   certificate type. Added certificate type negotiation TLS extension.
 - Added openpgp key support (EXPERIMENTAL)
 - Improved Diffie Hellman key exchange support.
@@ -8873,7 +9632,7 @@ LIBGNUTLS_VERSION_NUMBER: New CPP symbols, indicating the GnuTLS
 - TLS extensions now use a 16 bit type field.
 - Added a minimal string library to assist in ASN.1 parsing
 - Changes in ASN.1 parser to work with the new bison
-- Added gnutls_x509_extract_subject_alt_name(), which deprecates 
+- Added gnutls_x509_extract_subject_alt_name(), which deprecates
   gnutls_x509_extract_subject_dns_name()
 - gnutls_x509_set_trust_(file/mem) can now be called multiple times
 - gnutls_srp_server_set_cred_file() can now be called multiple times
